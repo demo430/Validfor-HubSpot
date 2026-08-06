@@ -1,0 +1,50 @@
+{
+  "name": "validfor-relay",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Fireflies -> Claude API (Sonnet 5) -> HubSpot toplanti otomasyonu (sade surum)",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "smoke": "tsx scripts/smoke.ts",
+    "smoke:hubspot": "tsx scripts/smoke-hubspot.ts",
+    "smoke:fireflies": "tsx scripts/smoke-fireflies.ts",
+    "smoke:pdf": "tsx scripts/smoke-pdf.ts",
+    "smoke:classify": "tsx scripts/smoke-classify.ts",
+    "smoke:upsert": "tsx scripts/smoke-upsert.ts",
+    "smoke:vcfields": "tsx scripts/smoke-vcfields.ts",
+    "smoke:sweep": "tsx scripts/smoke-sweep.ts",
+    "smoke:gcal": "tsx scripts/smoke-gcal.ts",
+    "smoke:calendly": "tsx scripts/smoke-calendly.ts",
+    "smoke:webhook": "tsx scripts/smoke-webhook.ts",
+    "setup-properties": "tsx scripts/setup-properties.ts",
+    "test-fireflies": "tsx scripts/test-fireflies.ts",
+    "test-pdf": "tsx scripts/test-pdf.ts",
+    "test-classify": "tsx scripts/test-classify.ts",
+    "test-upsert": "tsx scripts/test-upsert.ts",
+    "test-webhook": "tsx scripts/test-webhook.ts",
+    "gen-fonts": "tsx scripts/gen-fonts.ts",
+    "typecheck": "tsc --noEmit",
+    "match-trello": "tsx scripts/match-trello.ts",
+    "smoke:match": "tsx scripts/smoke-match.ts",
+    "smoke:apollo": "tsx scripts/smoke-apollo.ts",
+    "backfill-trello": "tsx scripts/backfill-trello.ts",
+    "backfill-companies": "tsx scripts/backfill-companies.ts"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.112.1",
+    "@hono/node-server": "^1.13.7",
+    "hono": "^4.6.14",
+    "pdfkit": "^0.15.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/pdfkit": "^0.17.6",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "functions": {
+    "api/index.ts": {
+      "maxDuration": 60
+    }
+  },
+  "crons": [
+    { "path": "/api/apollo-sync", "schedule": "0 7 * * *" },
+    { "path": "/api/stage-sweep", "schedule": "30 7 * * *" }
+  ],
+  "rewrites": [{ "source": "/(.*)", "destination": "/api" }]
+}
