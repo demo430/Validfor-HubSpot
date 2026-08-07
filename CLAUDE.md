@@ -45,6 +45,11 @@ Vercel → Settings → Environment Variables altında tanımlı:
 | `VALIDFOR_INTERNAL_DOMAINS` | İç katılımcı sayılan domainler |
 | `VC_EXCLUDE_DOMAINS` | Asla otomatik VC kartı açılmayacak domainler |
 
+Ayrıca kodda okunan ama yukarıda listelenmeyenler: `HUBSPOT_API_BASE`
+(EU portal → `https://api-eu1.hubapi.com`), `APOLLO_LIST_NAMES` (virgüllü liste
+adları), `GOOGLE_CALENDAR_API_KEY` (service account yoksa yalnız herkese açık
+takvim okur), `TRELLO_KEY` · `TRELLO_TOKEN` · `TRELLO_BOARD` (yalnız backfill).
+
 `CALENDLY_TOKEN` **bilinçli olarak kullanılmıyor** — aşağıya bak.
 
 ---
@@ -59,11 +64,18 @@ Google Takvim'ine düştüğü için demolar oradan yakalanıyor. **Calendly API
 bağımlılık yok.** Token'ı düzeltmeye çalışmadan önce bunun zaten çözüldüğünü
 hatırla.
 
+Kod yolu hâlâ duruyor: `CALENDLY_TOKEN` env'de tanımlıysa `stage-sweep` içinde
+`calendly-sync` de koşar (`src/index.ts`), sadece boş sonuç döner. Yani günlük
+koşumda üç takvim adımı var — `calendar-sync` (VC), `calendar-demos` (demo,
+takvimden) ve `calendly-sync` (demo, Calendly API'sinden; şu an ölü).
+
 ### Deploy edilen `vercel.json` repodakinden farklı olabilir
 Kod bir dönem GitHub web arayüzünden elle yüklendi ("Add files via upload").
 Eski dosyalar tam temizlenmediyse deploy edilen `vercel.json` repodakinden
 sapabilir. **Belirti:** `apollo-sync` günde bir yerine 15 dakikada bir koşuyor
-(Vercel runtime loglarından görülür). Doğrusu:
+(Vercel runtime loglarından görülür). **Repodaki `vercel.json` artık doğru**
+(2026-08 kontrolü) — sapma varsa deploy tarafındadır, repo tarafında değil.
+Doğrusu:
 
 ```json
 "crons": [
@@ -134,14 +146,18 @@ deploy'un güncel olup olmadığını anlamanın hızlı yolu.
 
 ## Açık işler
 
-- [ ] **`vercel.json` cron'unu düzelt** — `apollo-sync` 15 dakikada bir koşuyor,
-      günlük olmalı. Yukarıdaki "Bilinen tuzaklar" bölümüne bak.
+- [ ] **Deploy takılı** — canlı `GET /` `commit: 5501bf1` diyor, ama `main`
+      `7a9db38`'de. Vercel'deki son production deployment `readyState: BLOCKED`.
+      Yani `main`'deki son commit hiç yayına çıkmadı; önce bunu çöz, sonra
+      aşağıdaki doğrulamaları yap.
+- [x] **`vercel.json` cron'u** — repodaki dosya doğru (`0 7 * * *` /
+      `30 7 * * *`). Geriye yalnız **deploy edilen** sürümü Vercel runtime
+      loglarından doğrulamak kaldı.
 - [ ] **`demo@validfor.com` takvimini doğrula** — `GOOGLE_CALENDAR_ID`'ye
       eklendi mi ve takvim `GOOGLE_SA_EMAIL` ile paylaşıldı mı?
       `calendar-demos?dry=1` ile kontrol et.
-- [ ] **Repo hijyeni** — kök dizinde elle yüklemeden kalmış başıboş `.ts`
-      dosyaları varsa temizle (`api/`, `lib/`, `src/`, `scripts/` dışına
-      dosya çıkmamalı).
+- [x] **Repo hijyeni** — kök dizin temiz; `api/`, `lib/`, `src/`, `scripts/`
+      dışında başıboş `.ts` dosyası yok.
 
 ---
 
