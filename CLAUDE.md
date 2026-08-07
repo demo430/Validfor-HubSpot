@@ -1,0 +1,152 @@
+# Claude için proje bağlamı
+
+Mimari ve akış için önce `README.md` oku. Bu dosya onun kapsamadığı
+**operasyonel gerçekleri, bilinen tuzakları ve açık işleri** taşır.
+
+---
+
+## Altyapı — nerede ne çalışıyor
+
+| | |
+|---|---|
+| Vercel takımı | VALIDFOR (`team_rnTsaksEXAE1ABJ9cTyycYa8`) |
+| Vercel projesi | `validfor` (`prj_kFQJS1QBGNOrIErTSTLSe00szwdv`), framework Hono, Node 24 |
+| Deploy kaynağı | `demo430/Validfor-HubSpot` → branch `main` (private) |
+| Canlı URL | https://validfor.vercel.app |
+| Sağlık kontrolü | `GET /` → `{ok, service, version, commit, ts}` |
+
+`commit` alanı canlıdaki sürümü söyler — bir değişikliğin gerçekten yayına
+çıkıp çıkmadığını buradan doğrula.
+
+### Erişim notu
+
+Projenin geçmişinde birden fazla GitHub hesabı dolaştı: `mustafakman711`,
+`furkangultekin-Validfor`, `demo430`. **Kod `demo430/Validfor-HubSpot`'ta.**
+Bir oturumun push yetkisi yoksa sebep genelde budur — oturum yanlış hesabın
+reposuna bağlanmıştır. Oturum kaynağı `demo430/Validfor-HubSpot` olmalı.
+
+---
+
+## Ortam değişkenleri
+
+Vercel → Settings → Environment Variables altında tanımlı:
+
+| Değişken | Ne için |
+|---|---|
+| `FIREFLIES_API_KEY` | Transkript çekme |
+| `FIREFLIES_WEBHOOK_SECRET` | Webhook + manuel tetikleme kimliği |
+| `HUBSPOT_TOKEN` | CRM yazma/okuma |
+| `ANTHROPIC_API_KEY` | Sınıflandırma (`claude-sonnet-5`) |
+| `APOLLO_API_KEY` | Şirket/kişi zenginleştirme |
+| `CRON_SECRET` | Vercel cron'un bearer kimliği |
+| `GOOGLE_CALENDAR_ID` | **Virgülle ayrılmış çoklu takvim** kabul eder |
+| `GOOGLE_SA_EMAIL` | Service account — takvimler bu hesapla paylaşılmalı |
+| `GOOGLE_SA_PRIVATE_KEY` | Service account anahtarı |
+| `VALIDFOR_INTERNAL_DOMAINS` | İç katılımcı sayılan domainler |
+| `VC_EXCLUDE_DOMAINS` | Asla otomatik VC kartı açılmayacak domainler |
+
+`CALENDLY_TOKEN` **bilinçli olarak kullanılmıyor** — aşağıya bak.
+
+---
+
+## Bilinen tuzaklar
+
+### Calendly token'ı bozuk
+`CALENDLY_TOKEN` 403 "Insufficient scope" veriyor, yani `lib/calendly.ts`
+hiçbir rezervasyonu göremiyor. Bu yüzden `lib/gcal.ts` içindeki
+`syncCalendarDemoDeals` yazıldı: Calendly rezervasyonları organizatörün
+Google Takvim'ine düştüğü için demolar oradan yakalanıyor. **Calendly API'sine
+bağımlılık yok.** Token'ı düzeltmeye çalışmadan önce bunun zaten çözüldüğünü
+hatırla.
+
+### Deploy edilen `vercel.json` repodakinden farklı olabilir
+Kod bir dönem GitHub web arayüzünden elle yüklendi ("Add files via upload").
+Eski dosyalar tam temizlenmediyse deploy edilen `vercel.json` repodakinden
+sapabilir. **Belirti:** `apollo-sync` günde bir yerine 15 dakikada bir koşuyor
+(Vercel runtime loglarından görülür). Doğrusu:
+
+```json
+"crons": [
+  { "path": "/api/apollo-sync", "schedule": "0 7 * * *" },
+  { "path": "/api/stage-sweep", "schedule": "30 7 * * *" }
+]
+```
+
+Vercel Hobby'de cron sınırı 2'dir — bu yüzden `calendar-sync` ve
+`calendar-demos` ayrı cron değil, `stage-sweep` içinden çağrılır.
+
+### HubSpot arama limiti
+4 istek/saniye. Toplu döngülerde `await sleep(350)` freni var — kaldırma.
+
+### Apollo kredi koruması
+Zenginleştirilen şirkete `apollo_enriched_at` damgası basılır; damgalı kayıt
+tekrar sorgulanmaz. Loglarda `complete=N` bunu gösterir. Bu damgayı atlayan
+bir kod yolu eklersen krediler hızla tükenir.
+
+---
+
+## Değişmemesi gereken davranış kuralları
+
+Bunlar kullanıcının açık kararları — "iyileştirme" niyetiyle değiştirme.
+
+**Demo kartı `Unassigned`'a düşer**, `Scheduled`'a değil. Taşıma kararı ekibin;
+toplantı gerçekleşince otomasyon `Meeting`'e alır. (`lib/gcal.ts`)
+
+**Başlığında `demo` geçen etkinlik asla VC adayı olamaz.** "X Intro & Demo"
+gibi müşteri tanışmaları `intro` sinyaliyle VC pipeline'ına sızıyordu.
+
+**VC tespiti bilinçli olarak geniş.** Yanlış pozitif kart elle silinebilir,
+kaçırılan fon hiç görünmez. Daraltma önerisi gelirse bu gerekçeyi hatırlat.
+
+**Ortalama bilet `maxTicketSize`'a yazılır**, minimuma asla.
+
+**Boş-alan kuralı:** insanın girdiği değer asla ezilmez. Manuel bırakılan
+alanlar: Sales kartında Likelihood / Demo Status / Validfor Priority, VC
+kartında Likelihood.
+
+**Serbest webmail'den şirket kaydı açılmaz** (`FREE_EMAIL_DOMAINS`,
+`lib/upsert.ts`). Liste Polonya ve Çin webmail'leriyle genişletildi; benzer
+bir sızıntı görülürse listeye eklenir.
+
+---
+
+## Doğrulama komutları
+
+Tüm yazma uçları önizleme destekler — `?dry=1` hiçbir şey yazmaz.
+
+```bash
+# Canlı sürüm
+curl -s https://validfor.vercel.app/
+
+# Önizleme (SECRET = FIREFLIES_WEBHOOK_SECRET)
+curl -s "https://validfor.vercel.app/api/stage-sweep?dry=1"      -H "x-webhook-secret: SECRET"
+curl -s "https://validfor.vercel.app/api/calendar-demos?dry=1"   -H "x-webhook-secret: SECRET"
+curl -s "https://validfor.vercel.app/api/calendar-companies?dry=1" -H "x-webhook-secret: SECRET"
+
+# Gerçek koşum — stage-sweep içinde calendar-sync + calendar-demos da çalışır
+curl -s -X POST "https://validfor.vercel.app/api/stage-sweep" -H "x-webhook-secret: SECRET"
+```
+
+Anahtarsız `GET` her uçta rotanın ne yaptığını anlatan bir açıklama döner —
+deploy'un güncel olup olmadığını anlamanın hızlı yolu.
+
+---
+
+## Açık işler
+
+- [ ] **`vercel.json` cron'unu düzelt** — `apollo-sync` 15 dakikada bir koşuyor,
+      günlük olmalı. Yukarıdaki "Bilinen tuzaklar" bölümüne bak.
+- [ ] **`demo@validfor.com` takvimini doğrula** — `GOOGLE_CALENDAR_ID`'ye
+      eklendi mi ve takvim `GOOGLE_SA_EMAIL` ile paylaşıldı mı?
+      `calendar-demos?dry=1` ile kontrol et.
+- [ ] **Repo hijyeni** — kök dizinde elle yüklemeden kalmış başıboş `.ts`
+      dosyaları varsa temizle (`api/`, `lib/`, `src/`, `scripts/` dışına
+      dosya çıkmamalı).
+
+---
+
+## Dil
+
+Kod yorumları ve commit mesajları Türkçe, ASCII (Türkçe karakter yok —
+`sirket`, `toplanti` gibi). Kullanıcıya Türkçe yanıt ver. Claude'a giden
+promptlar ve CRM'e yazılan içerik İngilizce.
