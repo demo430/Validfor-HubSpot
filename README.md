@@ -24,8 +24,12 @@ Fireflies (kayıt + özet)
             ├ aynı koşumda calendar-sync: Google Takvim'deki VC toplantıları → VC Pipeline'da
             │ deal (Calendly kaynaklılar hariç — onlar demo). Gelecek toplantı → giriş stage'i;
             │ son 7 günde kaçırılmış geçmiş toplantı → doğrudan "Meeting" (?past=90 ile genişler)
+            ├ aynı koşumda calendar-demos: Google Takvim'deki demolar → Sales Pipeline'da
+            │ deal ("Unassigned"). Calendly API'sinden BAGIMSIZ yol — rezervasyonlar
+            │ organizatörün takvimine düştüğü için token bozuk olsa da demolar yakalanır
             └ aynı koşumda calendly-sync: Calendly'deki planlanmış demolar →
-              Sales Pipeline'da deal ("Scheduled"; demo gerçekleşince Meeting'e geçer)
+              Sales Pipeline'da deal ("Scheduled"; demo gerçekleşince Meeting'e geçer).
+              Yalnız `CALENDLY_TOKEN` tanımlıysa koşar; token bozuksa sonuç boş döner
 ```
 
 **Pipeline yönlendirme:** normal toplantılar Sales Pipeline'a düşer (toplantı
@@ -109,6 +113,7 @@ Değerler repoda **tutulmaz** (`.env.local`, Vercel env).
 | `CRON_SECRET` | Vercel cron auth (`FIREFLIES_WEBHOOK_SECRET` ile aynı değer yeterli) |
 | `GOOGLE_SA_EMAIL` · `GOOGLE_SA_PRIVATE_KEY` · `GOOGLE_CALENDAR_ID` | Takvim senkronu (**önerilen yol**: service account — takvim özel kalır). Her takvimi service account e-postasıyla "Tüm etkinlik ayrıntılarını görme" izniyle paylaş; Calendar ID takvim ayarlarındaki "Takvimi entegre et" bölümünde. **Birden çok takvim virgülle**: `a@x.com,b@group.calendar.google.com`. Env yoksa adım atlanır |
 | `GOOGLE_CALENDAR_API_KEY` | Takvim senkronu alternatifi: API key **yalnız herkese açık takvim** okur (service account env'leri yoksa kullanılır) |
-| `CALENDLY_TOKEN` | Calendly PAT (`scheduled_events:read` yeterli) — planlanmış demolar Sales "Scheduled"a düşer. Env yoksa adım atlanır |
+| `CALENDLY_TOKEN` | Calendly PAT (`scheduled_events:read` yeterli) — planlanmış demolar Sales "Scheduled"a düşer. Env yoksa adım atlanır. **Mevcut token 403 "Insufficient scope" veriyor**; demolar bunun yerine `calendar-demos` ile takvimden yakalanıyor |
+| `VALIDFOR_INTERNAL_DOMAINS` | İç katılımcı sayılan domain'ler (virgüllü) — varsayılan `validfor.com` |
 | `VC_EXCLUDE_DOMAINS` | Takvim senkronunun **asla** VC deal'i açmayacağı domain'ler (virgüllü) — mevcut yatırımcılar/portföy şirketleri, örn. `curiosityvc.com,weplayventures.com` |
 | (backfill) `TRELLO_KEY` · `TRELLO_TOKEN` · `TRELLO_BOARD` | Trello kartlarını okuma |
