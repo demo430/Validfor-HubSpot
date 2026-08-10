@@ -120,6 +120,17 @@ kartında Likelihood.
 `lib/upsert.ts`). Liste Polonya ve Çin webmail'leriyle genişletildi; benzer
 bir sızıntı görülürse listeye eklenir.
 
+**Tek istisna — Calendly formundaki şirket adı.** Kişisel e-postayla
+(`gmail.com`, `icloud.com`) alınan demo rezervasyonları CRM'de hiç
+görünmüyordu: `calendar-demos` domain bulamadığı için kart açmıyor, kayıt
+ancak toplantı gerçekleşip transkript işlenince oluşuyordu. Calendly form
+cevaplarını aktardığı **takvim etkinliğinin açıklamasına** yazdığı için
+(`Company Name: CHG`) bu ad artık okunuyor ve kart o adla açılıyor
+(`extractCompanyNameFromDescription`, `lib/gcal.ts`). Kural çiğnenmiyor:
+**webmail domain'i hiçbir zaman şirket kaydına yazılmaz**, yalnızca insanın
+beyan ettiği ad kullanılır. Şirket adı da yoksa aday yine oluşmaz.
+Calendly API'sine bağımlılık yok — bilgi takvimden geliyor.
+
 ---
 
 ## Doğrulama komutları

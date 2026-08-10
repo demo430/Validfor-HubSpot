@@ -8,6 +8,8 @@ import {
   normalizeEvents,
   isVcDomain,
   extractVcCandidates,
+  extractCalendarDemoCandidates,
+  extractCompanyNameFromDescription,
   normalizePrivateKey,
 } from "../lib/gcal.js";
 import { app } from "../src/index.js";
@@ -142,6 +144,66 @@ const demoEvs = normalizeEvents([
 ]);
 check("aday: adinda 'demo' gecen KESINLIKLE disari",
   extractVcCandidates(demoEvs, now).length === 0);
+
+// --- Demo adaylari: serbest webmail + Calendly formundaki sirket adi ---
+// Calendly, form cevaplarini aktardigi takvim etkinliginin ACIKLAMASINA yazar.
+const demoDesc =
+  "Event Name\n30 Minute Meeting\n\nJob Title: Quality Specialist\n\nCompany Name: CHG\n\n" +
+  "Need to make changes?\nCancel: https://calendly.com/cancellations/abc";
+check("aciklamadan sirket adi cikarilir",
+  extractCompanyNameFromDescription(demoDesc) === "CHG");
+check("aciklamada sirket adi yoksa bos",
+  extractCompanyNameFromDescription("Job Title: X\n\nno company here") === "");
+
+const webmailEvs = normalizeEvents([
+  {
+    id: "w1", summary: "Hagar Elmahdy and Validfor Demo",
+    start: { dateTime: iso(now + DAY) },
+    description: demoDesc,
+    attendees: [{ email: "hagerelmahdy@icloud.com" }, { email: "demo@validfor.com" }],
+  },
+]);
+const webmailCands = extractCalendarDemoCandidates(webmailEvs, now);
+check("demo aday: webmail davetli + form sirket adi -> AD ile aday",
+  webmailCands.length === 1 &&
+    webmailCands[0].companyName === "CHG" &&
+    webmailCands[0].domain === "");
+
+// Sirket adi YOKSA webmail davetli hicbir sekilde aday olmaz (kural korunur).
+const webmailNoName = normalizeEvents([
+  {
+    id: "w2", summary: "Biri and Validfor Demo",
+    start: { dateTime: iso(now + DAY) },
+    description: "Event Name\n30 Minute Meeting\n\nJob Title: X",
+    attendees: [{ email: "biri@gmail.com" }, { email: "demo@validfor.com" }],
+  },
+]);
+check("demo aday: webmail + sirket adi yok -> aday DEGIL",
+  extractCalendarDemoCandidates(webmailNoName, now).length === 0);
+
+// Sirket domain'i varsa eski davranis aynen korunur (domain kazanir).
+const corpEvs = normalizeEvents([
+  {
+    id: "c1", summary: "Acme x Validfor Demo",
+    start: { dateTime: iso(now + DAY) },
+    description: "Company Name: Yanlis Ad",
+    attendees: [{ email: "buyer@acme.com" }, { email: "demo@validfor.com" }],
+  },
+]);
+const corpCands = extractCalendarDemoCandidates(corpEvs, now);
+check("demo aday: sirket domain'i varsa domain kazanir",
+  corpCands.length === 1 && corpCands[0].domain === "acme.com");
+
+// Gecmis etkinlik demo adayi olmaz (Fireflies akisinin isi).
+const pastDemo = normalizeEvents([
+  {
+    id: "p1", summary: "Gecmis Demo", start: { dateTime: iso(now - DAY) },
+    description: "Company Name: CHG",
+    attendees: [{ email: "x@icloud.com" }, { email: "demo@validfor.com" }],
+  },
+]);
+check("demo aday: gecmis etkinlik disari",
+  extractCalendarDemoCandidates(pastDemo, now).length === 0);
 
 // Haric tutma listesi: mevcut yatirimci domain'i kosulsuz atlanir
 // (bigfund'in gecmis adayi kalir — dislanan yalniz listedeki domain'dir)

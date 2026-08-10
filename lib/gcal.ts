@@ -38,6 +38,21 @@ export interface CalendarEvent {
   names: string[];
   /** Calendly'den takvime dusen etkinlik — kural geregi DEMO'dur, VC adayi olamaz. */
   isCalendly: boolean;
+  /**
+   * Calendly rezervasyon formundaki "Company Name" cevabi. Calendly bu cevaplari
+   * aktardigi takvim etkinliginin ACIKLAMASINA yazar; Calendly API'sine gerek yok.
+   * Serbest webmail'li (gmail/icloud) davetlilerde sirketi bilmenin tek yolu budur.
+   */
+  companyName: string;
+}
+
+// Etkinlik aciklamasindan "Company Name: X" satirini cikarir (SAF).
+// Calendly formatı: "Job Title: ...\n\nCompany Name: CHG\n\n..."
+export function extractCompanyNameFromDescription(desc: string): string {
+  const m = /company\s*name\s*:\s*([^\r\n]+)/i.exec(String(desc || ""));
+  if (!m) return "";
+  // Bazi hesaplarda cevap HTML olarak gelir; etiketleri ayikla.
+  return m[1].replace(/<[^>]*>/g, "").trim().slice(0, 120);
 }
 
 // Google events yanitini normalize eder (SAF).
@@ -69,6 +84,7 @@ export function normalizeEvents(items: any[]): CalendarEvent[] {
       attendees: [...emails],
       names: [...names],
       isCalendly: hay.includes("calendly"),
+      companyName: extractCompanyNameFromDescription(String(it.description || "")),
     });
   }
   return out;
@@ -598,24 +614,42 @@ export interface CalendarDemoResult {
 export function extractCalendarDemoCandidates(
   events: CalendarEvent[],
   nowMs: number,
-): Array<{ domain: string; title: string; startMs: number }> {
-  const byDomain = new Map<string, { domain: string; title: string; startMs: number }>();
+): Array<{ domain: string; companyName: string; title: string; startMs: number }> {
+  type Cand = { domain: string; companyName: string; title: string; startMs: number };
+  const byKey = new Map<string, Cand>();
+  const keep = (key: string, cand: Cand): void => {
+    const cur = byKey.get(key);
+    if (!cur || cand.startMs < cur.startMs) byKey.set(key, cand);
+  };
   for (const ev of events) {
     if (ev.startMs <= nowMs) continue; // gecmis -> Fireflies akisi isler
     const title = ev.title.toLowerCase();
     // Calendly imzasi = kesin demo rezervasyonu. Imzasizsa yalniz "demo" basligi.
     if (!ev.isCalendly && !title.includes("demo")) continue;
+    let hasCompanyDomain = false;
+    let hasExternal = false;
     for (const email of ev.attendees) {
       if (isInternalEmail(email)) continue;
+      hasExternal = true;
       const domain = emailDomain(email);
       if (!isCompanyDomain(domain)) continue;
-      const cur = byDomain.get(domain);
-      if (!cur || ev.startMs < cur.startMs) {
-        byDomain.set(domain, { domain, title: ev.title, startMs: ev.startMs });
-      }
+      hasCompanyDomain = true;
+      keep(domain, { domain, companyName: "", title: ev.title, startMs: ev.startMs });
+    }
+    // Serbest webmail'li rezervasyon (gmail/icloud): sirket domain'i YOK ama
+    // Calendly formunda sirket adi var -> kart AD ile acilir. Webmail domain'i
+    // hicbir zaman sirket kaydina donmez; kural korunur, yalnizca insanin
+    // beyan ettigi ad kullanilir.
+    if (!hasCompanyDomain && hasExternal && ev.companyName) {
+      keep(`name:${ev.companyName.toLowerCase()}`, {
+        domain: "",
+        companyName: ev.companyName,
+        title: ev.title,
+        startMs: ev.startMs,
+      });
     }
   }
-  return [...byDomain.values()];
+  return [...byKey.values()];
 }
 
 export async function syncCalendarDemoDeals(
@@ -657,34 +691,42 @@ export async function syncCalendarDemoDeals(
   const sleep = (ms: number): Promise<void> => new Promise((res) => setTimeout(res, ms));
   for (const cand of candidates) {
     await sleep(350); // HubSpot arama limiti (4/sn) freni
+    // Domain varsa onunla, yoksa (serbest webmail) Calendly formundaki sirket
+    // adiyla calisilir. Kart adi da bu etiket olur.
+    const label = cand.domain || cand.companyName;
     try {
-      if (await findExistingDealForDomain(cand.domain, PIPELINE_ID)) {
+      if (await findExistingDealForDomain(label, PIPELINE_ID)) {
         r.existing++;
         continue;
       }
       const when = new Date(cand.startMs).toISOString().slice(0, 16).replace("T", " ");
       if (!dry) {
         let companyId = "";
-        const comp = await hs.searchByProperty("company", "domain", "EQ", cand.domain, ["name"]);
+        // Domain'siz adayda sirket ADIYLA aranir (mukerrer kayit acilmasin).
+        const comp = cand.domain
+          ? await hs.searchByProperty("company", "domain", "EQ", cand.domain, ["name"])
+          : await hs.searchByProperty("company", "name", "EQ", cand.companyName, ["name"]);
         companyId = comp?.id || "";
         if (!companyId) {
-          const created = await hs.createObject("company", { name: cand.domain, domain: cand.domain });
+          const props: Record<string, string> = { name: label };
+          if (cand.domain) props.domain = cand.domain; // webmail domain'i ASLA yazilmaz
+          const created = await hs.createObject("company", props);
           companyId = String(created.id);
         }
         // Kullanici kurali: book edilen demo "Unassigned"a duser; Scheduled'a
         // tasima karari EKIBIN. Toplanti gerceklesince otomasyon Meeting'e alir.
         const deal = await hs.createObject("deal", {
-          dealname: cand.domain,
+          dealname: label,
           pipeline: PIPELINE_ID,
           dealstage: STAGE.unassigned,
         });
         if (companyId) await hs.associateDefault("deal", String(deal.id), "company", companyId);
       }
       r.created++;
-      note(`${cand.domain}: "${cand.title || "(bassiz)"}" @ ${when} UTC -> Sales deal (Unassigned)`);
+      note(`${label}: "${cand.title || "(bassiz)"}" @ ${when} UTC -> Sales deal (Unassigned)`);
     } catch (e: any) {
       r.errors++;
-      note(`HATA ${cand.domain}: ${String(e?.message || e).slice(0, 160)}`);
+      note(`HATA ${label}: ${String(e?.message || e).slice(0, 160)}`);
     }
   }
   return r;
