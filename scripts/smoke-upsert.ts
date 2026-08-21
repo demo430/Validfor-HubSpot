@@ -14,6 +14,8 @@ import {
   VC_STAGE,
   parseProcessedList,
   appendProcessed,
+  normCompanyName,
+  sameCompanyName,
 } from "../lib/upsert.js";
 
 // Faz 5 duman testi: upsert'in saf yardimcilarini network'e cikmadan dogrular.
@@ -146,6 +148,23 @@ check("vc stage: Won -> dokunma", computeVcDealStage(VC_MANUAL.won) === null);
 check("vc stage: Lost -> dokunma", computeVcDealStage(VC_MANUAL.lost) === null);
 check("vc stage: Not Priority -> dokunma", computeVcDealStage(VC_MANUAL.notPriority) === null);
 check("vc stage: bilinmeyen -> dokunma", computeVcDealStage("some_custom_stage_xyz") === null);
+
+// --- sameCompanyName: mukerrer kart ureten ad farkliliklari ---
+// Ayni firmadan iki kisi Calendly formuna farkli ad yazinca iki kart aciliyordu.
+check("ad: birebir ayni", sameCompanyName("Julphar", "Julphar") === true);
+check("ad: buyuk/kucuk harf + bosluk", sameCompanyName("  julphar ", "Julphar") === true);
+check("ad: noktalama farki", sameCompanyName("Julphar, Inc.", "Julphar Inc") === true);
+check("ad: kelime sinirinda onek -> AYNI",
+  sameCompanyName("Julphar", "Julphar Pharmaceutical") === true);
+check("ad: onek degil -> FARKLI",
+  sameCompanyName("AZ Pharmaceutical", "Alembic Pharmaceuticals") === false);
+check("ad: ortak son kelime yetmez -> FARKLI",
+  sameCompanyName("Global", "Terra Link Global") === false);
+check("ad: kelime ortasinda kesisme -> FARKLI",
+  sameCompanyName("Julp", "Julphar") === false);
+check("ad: cok kisa ad -> FARKLI", sameCompanyName("IT", "ITART Consulting") === false);
+check("ad: bos -> FARKLI", sameCompanyName("", "Julphar") === false);
+check("normCompanyName", normCompanyName("  Julphar,  Inc. ") === "julphar inc");
 
 console.log(
   fail === 0

@@ -10,6 +10,8 @@ import {
   extractVcCandidates,
   extractCalendarDemoCandidates,
   extractCompanyNameFromDescription,
+  findOrCreateCompany,
+  findCalendarCompanyName,
   normalizePrivateKey,
 } from "../lib/gcal.js";
 import { app } from "../src/index.js";
@@ -204,6 +206,50 @@ const pastDemo = normalizeEvents([
 ]);
 check("demo aday: gecmis etkinlik disari",
   extractCalendarDemoCandidates(pastDemo, now).length === 0);
+
+// --- Kart adi: BEYAN EDILEN sirket adi domain'e tercih edilir ---
+// Kurumsal e-postali adayda da companyName tasinmali; kart "thermofisher.com"
+// degil "Thermo Fisher Scientific" adiyla acilsin (domain sirket kaydinda kalir).
+const corpNamed = normalizeEvents([
+  {
+    id: "cn1", summary: "Ali Ekici and Validfor Demo",
+    start: { dateTime: iso(now + DAY) },
+    description: "Job Title: QA\n\nCompany Name: Thermo Fisher Scientific",
+    attendees: [{ email: "ali.ekici@thermofisher.com" }, { email: "demo@validfor.com" }],
+  },
+]);
+const corpNamedCands = extractCalendarDemoCandidates(corpNamed, now);
+check("demo aday: kurumsal domain'de de form adi tasinir",
+  corpNamedCands.length === 1 &&
+    corpNamedCands[0].domain === "thermofisher.com" &&
+    corpNamedCands[0].companyName === "Thermo Fisher Scientific");
+
+// Aciklamada ad yoksa domain'e duser (eski davranis korunur)
+const corpNoName = normalizeEvents([
+  {
+    id: "cn2", summary: "Biri and Validfor Demo",
+    start: { dateTime: iso(now + DAY) },
+    attendees: [{ email: "x@acme.com" }, { email: "demo@validfor.com" }],
+  },
+]);
+const corpNoNameCands = extractCalendarDemoCandidates(corpNoName, now);
+check("demo aday: form adi yoksa companyName bos kalir",
+  corpNoNameCands.length === 1 &&
+    corpNoNameCands[0].domain === "acme.com" &&
+    corpNoNameCands[0].companyName === "");
+
+check("findOrCreateCompany disa aktarilmis", typeof findOrCreateCompany === "function");
+
+// --- Transkript kurtarmasi: takvimden sirket adi ---
+// Guvenlik agi: takvim yapilandirilmamissa ASLA firlatmaz, bos doner.
+// (pipeline bu cagriyi try icinde yapiyor ama sessiz bos donus daha ucuz)
+const savedCalId = process.env.GOOGLE_CALENDAR_ID;
+delete process.env.GOOGLE_CALENDAR_ID;
+const noCal = await findCalendarCompanyName(["x@gmail.com"], now - DAY);
+check("takvim adi: GOOGLE_CALENDAR_ID yoksa bos doner", noCal === "");
+const noEmail = await findCalendarCompanyName([], now - DAY);
+check("takvim adi: katilimci yoksa bos doner", noEmail === "");
+if (savedCalId !== undefined) process.env.GOOGLE_CALENDAR_ID = savedCalId;
 
 // Haric tutma listesi: mevcut yatirimci domain'i kosulsuz atlanir
 // (bigfund'in gecmis adayi kalir — dislanan yalniz listedeki domain'dir)

@@ -56,6 +56,38 @@ export function isCompanyDomain(domain: string): boolean {
   return Boolean(d) && !FREE_EMAIL_DOMAINS.has(d) && !isNonCompanyDomain(d);
 }
 
+/**
+ * Sirket adlarini normalize eder (SAF): kucuk harf, noktalama -> bosluk,
+ * coklu bosluk tek bosluga. "Julphar Pharmaceutical, Inc." -> "julphar pharmaceutical inc"
+ */
+export function normCompanyName(name: string): string {
+  return String(name || "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+/**
+ * Iki ad AYNI sirketi mi gosteriyor? (SAF)
+ *
+ * Birebir esitlik yetmiyor: ayni firmadan iki kisi Calendly formuna "Julphar" ve
+ * "Julphar Pharmaceutical" yazinca iki ayri kart aciliyordu. Kural: adlardan biri
+ * digerinin KELIME SINIRINDA oneki ise ayni sayilir.
+ *
+ * Onek (icerme degil) secildi: "global" ile "terra link global" eslesmemeli.
+ * Kisa ad esigi (>=4 karakter): "it" ile "itart consulting" eslesmemeli.
+ */
+export function sameCompanyName(a: string, b: string): boolean {
+  const x = normCompanyName(a);
+  const y = normCompanyName(b);
+  if (!x || !y) return false;
+  if (x === y) return true;
+  const [short, long] = x.length <= y.length ? [x, y] : [y, x];
+  if (short.length < 4) return false;
+  return long.startsWith(short + " ");
+}
+
 // --- Saf yardimcilar (network yok; testlerde dogrulanabilir) ---
 export function emailDomain(email: string): string {
   const at = String(email || "").lastIndexOf("@");

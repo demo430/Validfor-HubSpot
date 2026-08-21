@@ -131,6 +131,24 @@ cevaplarını aktardığı **takvim etkinliğinin açıklamasına** yazdığı i
 beyan ettiği ad kullanılır. Şirket adı da yoksa aday yine oluşmaz.
 Calendly API'sine bağımlılık yok — bilgi takvimden geliyor.
 
+**Aynı ad transkript yolunda da kullanılır.** Toplantı gerçekleştikten sonra
+`processTranscript`, karşı tarafta şirket domain'i yoksa ve Claude transkriptten
+şirket adı çıkaramadıysa takvim etkinliğini toplantı saatine + katılımcıya göre
+bulup oradaki adı akışa geri verir (`findCalendarCompanyName`, `lib/gcal.ts`).
+Bu olmadan 30 dakikalık dolu bir demo bile `skipped: harici sirket/katilimci yok`
+ile CRM'e hiç girmiyordu (Abanoub/Julphar, Luis/LuceNox vakaları). Takvim
+okunamazsa eski davranışa düşer — pipeline kırılmaz.
+
+**Kart adı domain'e değil beyan edilen ada göre açılır.** Kurumsal e-postada da
+formdaki `Company Name` tercih edilir (kart `thermofisher.com` değil "Thermo
+Fisher Scientific" olur); domain yine şirket kaydının `domain` alanına yazılır,
+eşleştirme ve Apollo zenginleştirme oradan çalışmaya devam eder.
+
+**Şirket adı eşleştirmesi toleranslıdır.** Aynı firmadan iki kişi forma
+"Julphar" ve "Julphar Pharmaceutical" yazınca iki kart açılıyordu.
+`sameCompanyName` (`lib/upsert.ts`) kelime sınırındaki öneki aynı şirket sayar;
+"Global" ile "Terra Link Global" gibi son-kelime kesişmeleri eşleşmez.
+
 ---
 
 ## Doğrulama komutları
