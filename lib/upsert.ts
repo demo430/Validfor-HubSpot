@@ -387,12 +387,13 @@ export async function upsertMeeting(
     if (companyId) companyCountry = String(c.properties?.country || "");
     if (!companyId) {
       // EQ buyuk/kucuk harf duyarli: "freshworks" vs "Freshworks" mukerrer sirket
-      // yaratmasin diye normalize edilmis tam-eslesme fallback'i (deal aramasiyla tutarli).
-      const want = x.companyName.trim().toLowerCase();
+      // yaratmasin diye CONTAINS_TOKEN fallback'i. Karsilastirma sameCompanyName
+      // ile yapilir: ayni firmadan iki kisi "Julphar" ve "Julphar Pharmaceutical"
+      // yazinca ikinci toplanti YENI kart aciyordu (mohamed barakat vakasi).
       const alt = await hs.searchByProperty(
         "company", "name", "CONTAINS_TOKEN", x.companyName, ["name", "country"],
       );
-      if (alt && String(alt.properties?.name || "").trim().toLowerCase() === want) {
+      if (alt && sameCompanyName(String(alt.properties?.name || ""), x.companyName)) {
         companyId = alt.id;
         companyCountry = String(alt.properties?.country || "");
       }
