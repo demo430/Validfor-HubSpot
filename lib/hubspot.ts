@@ -519,13 +519,29 @@ export async function listOwners(): Promise<any[]> {
   return ownersCache;
 }
 
+/**
+ * Kisi adini karsilastirilabilir hale getirir.
+ *
+ * Turkce/aksanli harfler ASCII'ye katlanir ("Omer Cimen" ile "Ömer Çimen" ayni
+ * kisidir), noktalama bosluga cevrilir, bosluklar tekillesir. HubSpot'taki
+ * kullanici adi ile karttaki "Deal Owner Validfor" metni farkli yazilmis
+ * olabilir; eslesme bu normalizasyon uzerinden yapilir.
+ */
+export function normPersonName(name: string): string {
+  return String(name || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // aksan isaretlerini dusur
+    .replace(/\u0131/g, "i")
+    .replace(/\u0130/g, "i")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
 /** Owner kaydindan tam adi uretir ("Omer" + "Cimen" -> "omer cimen"). */
 function ownerFullName(o: any): string {
-  return [o?.firstName, o?.lastName]
-    .map((s) => String(s || "").trim())
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
+  return normPersonName([o?.firstName, o?.lastName].filter(Boolean).join(" "));
 }
 
 /**
@@ -540,7 +556,7 @@ export async function resolveOwnerId(input: {
   name?: string;
 }): Promise<string> {
   const email = String(input.email || "").toLowerCase().trim();
-  const name = String(input.name || "").toLowerCase().trim();
+  const name = normPersonName(input.name || "");
   if (!email && !name) return "";
 
   let owners: any[];
@@ -559,6 +575,12 @@ export async function resolveOwnerId(input: {
   if (name) {
     const hits = active.filter((o) => ownerFullName(o) === name);
     if (hits.length === 1 && hits[0]?.id) return String(hits[0].id);
+    // Kartta yalniz ad yaziyorsa ("Bharani") ve portalda o ada sahip TEK kisi
+    // varsa o kisidir. Birden fazlaysa belirsiz -> bos doner.
+    if (!name.includes(" ")) {
+      const firsts = active.filter((o) => normPersonName(o?.firstName) === name);
+      if (firsts.length === 1 && firsts[0]?.id) return String(firsts[0].id);
+    }
   }
   return "";
 }

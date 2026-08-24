@@ -124,6 +124,12 @@ Otomasyon ikisini de yazar; owner eşleşmesi **e-posta** üzerinden yapılır
 Elle atanmış owner asla ezilmez. Ekip HubSpot kullanıcısı değilse
 `hubspot_owner_id` boş kalır, metin alanı yine dolar.
 
+**Deal owner = Deal Owner Validfor.** Karttaki `deal_owner_validfor` kim ise
+standart `hubspot_owner_id` alanı da o kişiye ayarlanır (demo yapan herkese seat
+alındı). Eşleşme önce e-posta, tutmazsa tam ad üzerinden yapılır; ad birden çok
+kullanıcıya denk geliyorsa alan **boş bırakılır** — yanlış kişiye atama yok.
+Elle atanmış owner asla ezilmez. Geriye dönük süpürme: `/api/backfill-owners`.
+
 **Serbest webmail'den şirket kaydı açılmaz** (`FREE_EMAIL_DOMAINS`,
 `lib/upsert.ts`). Liste Polonya ve Çin webmail'leriyle genişletildi; benzer
 bir sızıntı görülürse listeye eklenir.
@@ -172,6 +178,8 @@ curl -s "https://validfor.vercel.app/api/stage-sweep?dry=1"      -H "x-webhook-s
 curl -s "https://validfor.vercel.app/api/calendar-demos?dry=1"   -H "x-webhook-secret: SECRET"
 curl -s "https://validfor.vercel.app/api/calendar-companies?dry=1" -H "x-webhook-secret: SECRET"
 
+curl -s "https://validfor.vercel.app/api/backfill-owners?dry=1"   -H "x-webhook-secret: SECRET"
+
 # Gerçek koşum — stage-sweep içinde calendar-sync + calendar-demos da çalışır
 curl -s -X POST "https://validfor.vercel.app/api/stage-sweep" -H "x-webhook-secret: SECRET"
 ```
@@ -190,6 +198,9 @@ deploy'un güncel olup olmadığını anlamanın hızlı yolu.
 - [x] **`vercel.json` cron'u** — repodaki dosya doğru (`0 7 * * *` /
       `30 7 * * *`). Geriye yalnız **deploy edilen** sürümü Vercel runtime
       loglarından doğrulamak kaldı.
+- [ ] **Owner backfill'i koş** — `backfill-owners?dry=1` ile önizle, sonra POST.
+      Yanıttaki `unresolved` altında kalan adlar HubSpot'ta kullanıcı olarak
+      yok ya da ad birden çok kişiye denk geliyor demektir; onlar elle atanır.
 - [ ] **`demo@validfor.com` takvimini doğrula** — `GOOGLE_CALENDAR_ID`'ye
       eklendi mi ve takvim `GOOGLE_SA_EMAIL` ile paylaşıldı mı?
       `calendar-demos?dry=1` ile kontrol et.
