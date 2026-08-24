@@ -116,6 +116,14 @@ kaçırılan fon hiç görünmez. Daraltma önerisi gelirse bu gerekçeyi hatır
 alanlar: Sales kartında Likelihood / Demo Status / Validfor Priority, VC
 kartında Likelihood.
 
+**Deal owner iki alanda tutulur.** `deal_owner_validfor` (özel metin alanı,
+toplantıyı yapan kişinin adı) ve `hubspot_owner_id` (HubSpot'un standart
+alanı — kanban kartı, raporlar ve görev yönlendirmesi bunu kullanır).
+Otomasyon ikisini de yazar; owner eşleşmesi **e-posta** üzerinden yapılır
+(ad tekrar edebilir), bulunamazsa alan boş kalır — yanlış kişiye atama yok.
+Elle atanmış owner asla ezilmez. Ekip HubSpot kullanıcısı değilse
+`hubspot_owner_id` boş kalır, metin alanı yine dolar.
+
 **Serbest webmail'den şirket kaydı açılmaz** (`FREE_EMAIL_DOMAINS`,
 `lib/upsert.ts`). Liste Polonya ve Çin webmail'leriyle genişletildi; benzer
 bir sızıntı görülürse listeye eklenir.
