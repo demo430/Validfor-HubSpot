@@ -150,6 +150,21 @@ export function internalOwnerFromAttendees(t: Transcript): string {
   }
   return "";
 }
+// internalOwnerFromAttendees'in e-posta doneni: HubSpot owner eslesmesi ADA
+// degil E-POSTAYA gore yapilmali (adlar tekrar edebilir, yazim degisebilir).
+export function internalOwnerEmailFromAttendees(t: Transcript): string {
+  const candidates: string[] = [
+    ...(t.meeting_attendees || []).map((a) => (a.email || "").toLowerCase().trim()),
+    (t.organizer_email || "").toLowerCase().trim(),
+    (t.host_email || "").toLowerCase().trim(),
+  ];
+  for (const email of candidates) {
+    if (!email || !isInternalEmail(email) || isSharedAccountEmail(email)) continue;
+    return email;
+  }
+  return "";
+}
+
 function escapeHtml(s: string): string {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
@@ -531,7 +546,7 @@ export async function upsertMeeting(
   let vcStageJustSet = false; // yeni VC deal'i: stage create'te yazildi, adim 6 dokunmasin
   const cur: Record<string, string> = {}; // yalniz-bossa-yaz alanlarinin mevcut degerleri
   const ENRICH_PROPS = [
-    "deal_owner_validfor", "dealtype", "amount", "sector", "icp",
+    "deal_owner_validfor", "hubspot_owner_id", "dealtype", "amount", "sector", "icp",
     "headcount", "solution_which_competitor_they_use",
   ];
   if (dealId) {
@@ -664,6 +679,17 @@ export async function upsertMeeting(
     patch.dealname = x.companyName;
   }
   if (ownerName && !cur.deal_owner_validfor) patch.deal_owner_validfor = ownerName;
+  // Standart "Deal owner" (hubspot_owner_id): kanban karti, raporlar ve gorev
+  // yonlendirmesi bu alani kullanir. Ekip HubSpot kullanicisi olduktan sonra
+  // doldurulabilir; owner bulunamazsa alan BOS kalir (yanlis kisiye atama yok).
+  // Bos-alan kurali: elle atanmis owner ASLA ezilmez.
+  if (!cur.hubspot_owner_id) {
+    const ownerId = await hs.resolveOwnerId({
+      email: internalOwnerEmailFromAttendees(t),
+      name: ownerName,
+    });
+    if (ownerId) patch.hubspot_owner_id = ownerId;
+  }
   // Sales kart alanlari YALNIZ Sales Pipeline deal'ina yazilir (VC kartinda bu
   // alanlar yok). Kartin SON 3 alani (Likelihood / Demo Status / Validfor
   // Priority) bilincli MANUEL — otomasyon hicbirine yazmaz (insan degerlendirmesi).

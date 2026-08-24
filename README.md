@@ -70,6 +70,11 @@ npm run backfill-companies -- --dry   # mevcut şirketleri Apollo ile doldur (ö
 npm run backfill-companies            # gerçek yazım (yalnız boş alanlar dolar)
 ```
 
+> **Deal owner atama:** `/api/backfill-owners?key=SECRET&dry=1` önizler, POST
+> yazar. Karttaki "Deal Owner Validfor" adını HubSpot kullanıcısına çevirip
+> standart `Deal owner` alanına yazar; dolu owner'a dokunmaz, ad tekil
+> çözülemezse kartı atlar ve `unresolved` altında raporlar.
+
 > Lokal kurulum gerekmeden aynı iş deploy üzerinden de yapılır (tarayıcıdan):
 > `/api/backfill-companies?key=SECRET&dry=1` ile önizle, sonra `dry`'sız çağır.
 > Her çağrı en fazla 40 şirketi Apollo'ya sorar (60s bütçesi); yanıtta

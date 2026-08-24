@@ -495,3 +495,92 @@ export async function searchByProperty(
 export async function whoAmI(): Promise<any> {
   return hsFetch("/account-info/v3/details");
 }
+
+// --- Owner (deal sahibi) cozumleme ---
+// Portalda seat acildikca ekip HubSpot KULLANICISI olur; otomasyon toplantiyi
+// yapan kisiyi standart "Deal owner" (hubspot_owner_id) alanina da yazabilsin
+// diye ad/e-posta -> ownerId eslemesi burada. Liste kucuk ve nadiren degisir,
+// koşum boyunca bir kez cekilir.
+let ownersCache: Promise<any[]> | null = null;
+
+export function clearOwnersCache(): void {
+  ownersCache = null;
+}
+
+export async function listOwners(): Promise<any[]> {
+  if (!ownersCache) {
+    ownersCache = hsFetch<{ results?: any[] }>("/crm/v3/owners?limit=100")
+      .then((j) => j.results || [])
+      .catch((e) => {
+        ownersCache = null; // sonraki kosum tekrar denesin
+        throw e;
+      });
+  }
+  return ownersCache;
+}
+
+/**
+ * Kisi adini karsilastirilabilir hale getirir.
+ *
+ * Turkce/aksanli harfler ASCII'ye katlanir ("Omer Cimen" ile "Ömer Çimen" ayni
+ * kisidir), noktalama bosluga cevrilir, bosluklar tekillesir. HubSpot'taki
+ * kullanici adi ile karttaki "Deal Owner Validfor" metni farkli yazilmis
+ * olabilir; eslesme bu normalizasyon uzerinden yapilir.
+ */
+export function normPersonName(name: string): string {
+  return String(name || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // aksan isaretlerini dusur
+    .replace(/\u0131/g, "i")
+    .replace(/\u0130/g, "i")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+/** Owner kaydindan tam adi uretir ("Omer" + "Cimen" -> "omer cimen"). */
+function ownerFullName(o: any): string {
+  return normPersonName([o?.firstName, o?.lastName].filter(Boolean).join(" "));
+}
+
+/**
+ * Toplantiyi yapan kisiyi HubSpot owner ID'sine cevirir.
+ *
+ * Once E-POSTA ile eslesir (tekil ve guvenilir), tutmazsa TAM AD ile.
+ * Ad eslesmesi birden fazla owner'a denk gelirse belirsizdir -> "" doner
+ * (yanlis kisiye atamaktansa bos birakmak yeglenir).
+ */
+export async function resolveOwnerId(input: {
+  email?: string;
+  name?: string;
+}): Promise<string> {
+  const email = String(input.email || "").toLowerCase().trim();
+  const name = normPersonName(input.name || "");
+  if (!email && !name) return "";
+
+  let owners: any[];
+  try {
+    owners = await listOwners();
+  } catch (e: any) {
+    console.error("[hubspot] owner listesi alinamadi:", e?.message || e);
+    return "";
+  }
+  const active = owners.filter((o) => !o?.archived);
+
+  if (email) {
+    const hit = active.find((o) => String(o?.email || "").toLowerCase().trim() === email);
+    if (hit?.id) return String(hit.id);
+  }
+  if (name) {
+    const hits = active.filter((o) => ownerFullName(o) === name);
+    if (hits.length === 1 && hits[0]?.id) return String(hits[0].id);
+    // Kartta yalniz ad yaziyorsa ("Bharani") ve portalda o ada sahip TEK kisi
+    // varsa o kisidir. Birden fazlaysa belirsiz -> bos doner.
+    if (!name.includes(" ")) {
+      const firsts = active.filter((o) => normPersonName(o?.firstName) === name);
+      if (firsts.length === 1 && firsts[0]?.id) return String(firsts[0].id);
+    }
+  }
+  return "";
+}

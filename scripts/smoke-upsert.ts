@@ -16,6 +16,7 @@ import {
   appendProcessed,
   normCompanyName,
   sameCompanyName,
+  internalOwnerEmailFromAttendees,
 } from "../lib/upsert.js";
 
 // Faz 5 duman testi: upsert'in saf yardimcilarini network'e cikmadan dogrular.
@@ -165,6 +166,36 @@ check("ad: kelime ortasinda kesisme -> FARKLI",
 check("ad: cok kisa ad -> FARKLI", sameCompanyName("IT", "ITART Consulting") === false);
 check("ad: bos -> FARKLI", sameCompanyName("", "Julphar") === false);
 check("normCompanyName", normCompanyName("  Julphar,  Inc. ") === "julphar inc");
+
+// --- internalOwnerEmailFromAttendees: HubSpot owner eslesmesi icin e-posta ---
+// Ortak hesaplar (demo@, connect@) GERCEK KISI DEGIL -> owner olamaz.
+const ownerT1: any = {
+  meeting_attendees: [
+    { email: "demo@validfor.com" },
+    { email: "musteri@acme.com" },
+    { email: "Omer.Cimen@validfor.com" },
+  ],
+  organizer_email: "demo@validfor.com",
+};
+check("owner e-posta: ortak hesap atlanir, gercek kisi bulunur",
+  internalOwnerEmailFromAttendees(ownerT1) === "omer.cimen@validfor.com");
+
+const ownerT2: any = {
+  meeting_attendees: [{ email: "demo@validfor.com" }, { email: "x@acme.com" }],
+  organizer_email: "connect@validfor.com",
+};
+check("owner e-posta: yalniz ortak hesap varsa BOS",
+  internalOwnerEmailFromAttendees(ownerT2) === "");
+
+const ownerT3: any = {
+  meeting_attendees: [{ email: "x@acme.com" }],
+  organizer_email: "Beyzanur.Saglam@validfor.com",
+};
+check("owner e-posta: organizatorden turer + kucuk harf",
+  internalOwnerEmailFromAttendees(ownerT3) === "beyzanur.saglam@validfor.com");
+
+check("owner e-posta: hic katilimci yoksa BOS",
+  internalOwnerEmailFromAttendees({} as any) === "");
 
 console.log(
   fail === 0

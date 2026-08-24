@@ -3,6 +3,7 @@ import { processTranscript } from "../lib/pipeline.js";
 import { checkWebhookAuth, extractWebhookTranscriptId, safeEqual } from "../lib/webhook.js";
 import { enrichIncomingContacts } from "../lib/enrich-contacts.js";
 import { backfillCompanies } from "../lib/backfill.js";
+import { backfillDealOwners } from "../lib/owners.js";
 import { sweepStaleDeals, sweepEntryMismatch, DEFAULT_STALE_DAYS } from "../lib/sweep.js";
 import { syncScheduledVcDeals, syncCalendarCompanies, syncCalendarDemoDeals } from "../lib/gcal.js";
 import { syncCalendlyDemoDeals } from "../lib/calendly.js";
@@ -216,6 +217,46 @@ app.get("/api/backfill-companies", (c) => {
   const denied = relayAuthError(c, "backfill-companies");
   if (denied) return denied;
   return getWriteGate(c) ?? runCompanyBackfill(c);
+});
+
+// --- Mevcut kartlara standart "Deal owner" ata (geriye donuk, partili) ---
+// Kural: karttaki "Deal Owner Validfor" KIM ISE Deal owner o olur. Zaten dolu
+// olan owner'a dokunulmaz (bos-alan kurali); ad portalda tek kullaniciya
+// denk gelmiyorsa kart atlanir ve yanitta `unresolved` altinda raporlanir.
+// Once ?dry=1 ile onizle, sonra POST ile yaz. done=false ise tekrar cagir.
+async function runOwnerBackfill(c: any): Promise<Response> {
+  const denied = relayAuthError(c, "backfill-owners");
+  if (denied) return denied;
+  const dry = ["1", "true"].includes(String(c.req.query("dry") || "").toLowerCase());
+  const max = Math.min(Number(c.req.query("max")) || 500, 1000);
+  try {
+    const r = await backfillDealOwners({ max, dry, budgetMs: 45_000 });
+    console.log(
+      `[backfill-owners] dry=${dry} scanned=${r.scanned} assigned=${r.assigned} ` +
+        `unresolved=${Object.keys(r.unresolved).length} done=${r.done} errors=${r.errors}`,
+    );
+    return c.json({ ok: true, dry, ...r }, 200);
+  } catch (e: any) {
+    console.error("[backfill-owners] hata:", e?.message || e);
+    return c.json({ ok: false, error: String(e?.message || e).slice(0, 200) }, 200);
+  }
+}
+app.post("/api/backfill-owners", (c) => runOwnerBackfill(c));
+app.get("/api/backfill-owners", (c) => {
+  const bearer = (c.req.header("authorization") || "").replace(/^Bearer\s+/i, "");
+  const hasKey = Boolean(c.req.query("key") || bearer || c.req.header("x-webhook-secret"));
+  if (!hasKey) {
+    return c.json({
+      ok: true,
+      route: "backfill-owners",
+      hint:
+        "x-webhook-secret basligiyla cagir: GET ?dry=1 onizler, POST yazar " +
+        "(Deal Owner Validfor -> Deal owner; dolu owner asla ezilmez)",
+    });
+  }
+  const denied = relayAuthError(c, "backfill-owners");
+  if (denied) return denied;
+  return getWriteGate(c) ?? runOwnerBackfill(c);
 });
 
 // --- Hareketsiz deal supurucusu: Meeting'de 7 gundur hareket yoksa Follow-Up
