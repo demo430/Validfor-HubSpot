@@ -119,6 +119,7 @@ Değerler repoda **tutulmaz** (`.env.local`, Vercel env).
 | `GOOGLE_SA_EMAIL` · `GOOGLE_SA_PRIVATE_KEY` · `GOOGLE_CALENDAR_ID` | Takvim senkronu (**önerilen yol**: service account — takvim özel kalır). Her takvimi service account e-postasıyla "Tüm etkinlik ayrıntılarını görme" izniyle paylaş; Calendar ID takvim ayarlarındaki "Takvimi entegre et" bölümünde. **Birden çok takvim virgülle**: `a@x.com,b@group.calendar.google.com`. Env yoksa adım atlanır |
 | `GOOGLE_CALENDAR_API_KEY` | Takvim senkronu alternatifi: API key **yalnız herkese açık takvim** okur (service account env'leri yoksa kullanılır) |
 | `CALENDLY_TOKEN` | Calendly PAT (`scheduled_events:read` yeterli) — planlanmış demolar Sales "Scheduled"a düşer. Env yoksa adım atlanır. **Mevcut token 403 "Insufficient scope" veriyor**; demolar bunun yerine `calendar-demos` ile takvimden yakalanıyor |
+| `VALIDFOR_OWNER_MAP` | Deal owner **yedek** eşlemesi: virgüllü `anahtar:ownerId` çiftleri (anahtar e-posta ya da ad). Yalnız `/crm/v3/owners` erişilemezse (private app'te `crm.objects.owners.read` yoksa) kullanılır; API çalışıyorsa önce o. Env yoksa adım atlanır |
 | `VALIDFOR_INTERNAL_DOMAINS` | İç katılımcı sayılan domain'ler (virgüllü) — varsayılan `validfor.com` |
 | `VC_EXCLUDE_DOMAINS` | Takvim senkronunun **asla** VC deal'i açmayacağı domain'ler (virgüllü) — mevcut yatırımcılar/portföy şirketleri, örn. `curiosityvc.com,weplayventures.com` |
 | (backfill) `TRELLO_KEY` · `TRELLO_TOKEN` · `TRELLO_BOARD` | Trello kartlarını okuma |

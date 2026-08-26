@@ -1,4 +1,9 @@
-import { normPersonName, resolveOwnerId, clearOwnersCache } from "../lib/hubspot.js";
+import {
+  normPersonName,
+  resolveOwnerId,
+  clearOwnersCache,
+  envOwnerMapSize,
+} from "../lib/hubspot.js";
 import { backfillDealOwners } from "../lib/owners.js";
 import { app } from "../src/index.js";
 
@@ -21,6 +26,7 @@ const OWNERS = [
 
 // --- fetch sahtelemesi: HubSpot cagrilarini bellekten yanitlar ---
 const calls: Array<{ url: string; body: any }> = [];
+let ownersApiDown = false;
 let dealPages: any[][] = [];
 function installFetch(): void {
   (globalThis as any).fetch = async (input: any, init: any = {}) => {
@@ -32,7 +38,15 @@ function installFetch(): void {
         status: 200,
         headers: { "content-type": "application/json" },
       });
-    if (url.includes("/crm/v3/owners")) return json({ results: OWNERS });
+    if (url.includes("/crm/v3/owners")) {
+      if (ownersApiDown) {
+        return new Response(JSON.stringify({ category: "MISSING_SCOPES" }), {
+          status: 403,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return json({ results: OWNERS });
+    }
     if (url.includes("/crm/v3/objects/deals/search")) {
       const page = dealPages.shift() || [];
       return json({ results: page });
@@ -80,6 +94,84 @@ async function main(): Promise<void> {
     (await resolveOwnerId({ name: "Kimse Yok" })) === "",
   );
   check("bos girdi -> bos doner", (await resolveOwnerId({})) === "");
+
+  // --- VALIDFOR_OWNER_MAP yedek yolu ---
+  // Owners API'si 403 verse bile (private app'te crm.objects.owners.read yoksa)
+  // atama calismali; API calisiyorsa env haritasi ONE GECMEMELI.
+  delete process.env.VALIDFOR_OWNER_MAP;
+  check("env haritasi tanimsizken bos", envOwnerMapSize() === 0);
+
+  process.env.VALIDFOR_OWNER_MAP =
+    "omer.cimen@validfor.com:11, Ömer Çimen :11,Bharani:22,Burak:33,bozuk-satir,Kotu:abc";
+  check("env haritasi ayrisir (bozuk satirlar atlanir)", envOwnerMapSize() === 4);
+  check(
+    "rakam olmayan ownerId reddedilir",
+    (await resolveOwnerId({ name: "Kotu" })) === "",
+  );
+
+  // API AYAKTA: env haritasi devreye girmemeli — portal gercegi kazanir.
+  ownersApiDown = false;
+  clearOwnersCache();
+  process.env.VALIDFOR_OWNER_MAP = "Burak:33"; // API'de "Burak" belirsiz (iki kisi)
+  check(
+    "API ayaktayken belirsiz ad env'den cozulur (son care)",
+    (await resolveOwnerId({ name: "Burak" })) === "33",
+  );
+  process.env.VALIDFOR_OWNER_MAP = "bharani@validfor.com:999";
+  clearOwnersCache();
+  check(
+    "API ayaktayken API kazanir (env EZMEZ)",
+    (await resolveOwnerId({ email: "bharani@validfor.com" })) === "22",
+  );
+
+  // API 403: yalniz env haritasi kalir.
+  ownersApiDown = true;
+  clearOwnersCache();
+  process.env.VALIDFOR_OWNER_MAP =
+    "omer.cimen@validfor.com:11,Bharani Rajendran:22,Bharani:22";
+  check(
+    "API 403 iken e-posta env'den cozulur",
+    (await resolveOwnerId({ email: "OMER.CIMEN@validfor.com" })) === "11",
+  );
+  check(
+    "API 403 iken aksanli ad env'den cozulur",
+    (await resolveOwnerId({ name: "Bharani Rajendran" })) === "22",
+  );
+  check(
+    "API 403 + haritada yoksa bos doner",
+    (await resolveOwnerId({ name: "Kimse Yok" })) === "",
+  );
+
+  // API 403 + env haritasi VARSA backfill kosmaya devam eder.
+  dealPages = [[
+    { id: "9", properties: { dealname: "Env Kart", deal_owner_validfor: "Bharani" } },
+  ]];
+  calls.length = 0;
+  const envRun = await backfillDealOwners({ dry: false });
+  const envWrites = calls.filter((c) => c.url.includes("batch/update"));
+  check("API 403 + env: kart yine de atanir", envRun.assigned === 1);
+  check(
+    "API 403 + env: dogru ownerId yazilir",
+    envWrites[0]?.body?.inputs?.[0]?.properties?.hubspot_owner_id === "22",
+  );
+
+  // API 403 + env haritasi YOKSA hicbir kart taranmaz (bosuna istek atilmaz).
+  delete process.env.VALIDFOR_OWNER_MAP;
+  clearOwnersCache();
+  dealPages = [[
+    { id: "9", properties: { dealname: "Env Kart", deal_owner_validfor: "Bharani" } },
+  ]];
+  calls.length = 0;
+  const noEnvRun = await backfillDealOwners({ dry: false });
+  check("API 403 + env yok: taranmaz", noEnvRun.scanned === 0 && noEnvRun.errors === 1);
+  check(
+    "API 403 + env yok: deal aramasi bile yapilmaz",
+    !calls.some((c) => c.url.includes("deals/search")),
+  );
+
+  // Testin geri kalani API AYAKTA + env YOK varsayimiyla kosar.
+  ownersApiDown = false;
+  clearOwnersCache();
 
   // --- backfillDealOwners: dry hicbir sey yazmaz ---
   const deals = [
