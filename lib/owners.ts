@@ -82,13 +82,20 @@ export async function backfillDealOwners(opts: {
   };
 
   // Owner listesi bir kez cekilir; ad -> id cozumlemesi bellekten yapilir.
+  // Liste alinamazsa (ornegin private app'te crm.objects.owners.read yoksa)
+  // VALIDFOR_OWNER_MAP yedek yolu varsa kosuma DEVAM edilir; o da yoksa
+  // hicbir ad cozulemeyecegi icin bosuna kart taranmaz.
   hs.clearOwnersCache();
   try {
     await hs.listOwners();
   } catch (e: any) {
     console.error("[owner-backfill] owner listesi alinamadi:", e?.message || e);
     out.errors++;
-    return out;
+    if (!hs.envOwnerMapSize()) return out;
+    console.log(
+      `[owner-backfill] VALIDFOR_OWNER_MAP ile devam ediliyor ` +
+        `(${hs.envOwnerMapSize()} eslesme)`,
+    );
   }
 
   // 1) ONCE TOPLA (yazmadan): sayfalama sirasinda kayit guncellenirse arama

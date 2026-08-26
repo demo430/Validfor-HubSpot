@@ -45,6 +45,8 @@ Vercel → Settings → Environment Variables altında tanımlı:
 | `VALIDFOR_INTERNAL_DOMAINS` | İç katılımcı sayılan domainler |
 | `VC_EXCLUDE_DOMAINS` | Asla otomatik VC kartı açılmayacak domainler |
 
+| `VALIDFOR_OWNER_MAP` | Owners API'si 403 verirse Deal owner yedek eşlemesi |
+
 Ayrıca kodda okunan ama yukarıda listelenmeyenler: `HUBSPOT_API_BASE`
 (EU portal → `https://api-eu1.hubapi.com`), `APOLLO_LIST_NAMES` (virgüllü liste
 adları), `GOOGLE_CALENDAR_API_KEY` (service account yoksa yalnız herkese açık
@@ -86,6 +88,28 @@ Doğrusu:
 
 Vercel Hobby'de cron sınırı 2'dir — bu yüzden `calendar-sync` ve
 `calendar-demos` ayrı cron değil, `stage-sweep` içinden çağrılır.
+
+### Owners API'si scope istiyor — Deal owner sessizce boş kalır
+`/crm/v3/owners` çağrısı `crm.objects.owners.read` scope'unu ister. Private
+app'e bu izin verilmemişse HubSpot **403 MISSING_SCOPES** döner;
+`resolveOwnerId` hatayı yutup `""` döndüğü için (yanlış kişiye atamamak adına)
+`hubspot_owner_id` **sessizce boş kalır** — `deal_owner_validfor` dolduğu için
+sorun ilk bakışta görünmez. **Belirti:** kartta "Deal Owner Validfor" yazıyor
+ama kanban'da Deal owner boş.
+
+**Teşhis:** `curl -s "https://validfor.vercel.app/api/backfill-owners?dry=1"
+-H "x-webhook-secret: SECRET"` → `scanned:0` + `errors:1` ise sebep budur
+(Vercel logunda `[owner-backfill] owner listesi alinamadi: HubSpot 403`).
+
+**Kalıcı çözüm:** HubSpot → Ayarlar → Integrations → Private Apps → app →
+Scopes → `crm.objects.owners.read` işaretle → Commit changes. Token değeri
+değişmez, redeploy gerekmez.
+
+**Yedek yol:** Scope açılamıyorsa `VALIDFOR_OWNER_MAP` env'i devreye girer —
+virgülle ayrılmış `anahtar:ownerId` çiftleri, anahtar e-posta ya da ad olabilir
+(ad karşılaştırması aksan/noktalama toleranslı). Owners API'si çalışıyorsa
+**önce o** kullanılır; env yalnız son çaredir. Yeni seat açıldığında bu listeyi
+elle güncellemeyi unutma.
 
 ### HubSpot arama limiti
 4 istek/saniye. Toplu döngülerde `await sleep(350)` freni var — kaldırma.

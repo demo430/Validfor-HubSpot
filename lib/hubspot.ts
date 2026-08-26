@@ -544,12 +544,60 @@ function ownerFullName(o: any): string {
   return normPersonName([o?.firstName, o?.lastName].filter(Boolean).join(" "));
 }
 
+// --- Owners API'sine erisilemedigi durum icin ELLE eslesme (yedek yol) ---
+//
+// `/crm/v3/owners` cagrisi `crm.objects.owners.read` scope'u ister. Private
+// app'e bu izin verilmemisse HubSpot 403 doner ve otomasyon hicbir owner
+// cozemez -> Deal owner alani sessizce bos kalir. Bu env degiskeni o durumda
+// devreye girer.
+//
+// Bicim: virgulle ayrilmis `anahtar:ownerId` ciftleri. Anahtar ya bir E-POSTA
+// ya da bir AD olabilir; ad aranirken normalize edilir (aksan/noktalama farki
+// onemli degil). Ornek:
+//
+//   VALIDFOR_OWNER_MAP="ada.lovelace@ornek.com:11111111,Ada Lovelace:11111111,Ada:11111111"
+//
+// NOT: Bu yalnizca YEDEK. Owners API'si calisiyorsa ONCE o kullanilir, cunku
+// portaldaki gercek durumu yansitir ve seat degisikliklerinde kendini gunceller.
+let envOwnerMapCache: { raw: string; map: Map<string, string> } | null = null;
+
+function envOwnerMap(): Map<string, string> {
+  const raw = String(process.env.VALIDFOR_OWNER_MAP || "").trim();
+  if (envOwnerMapCache && envOwnerMapCache.raw === raw) return envOwnerMapCache.map;
+  const map = new Map<string, string>();
+  for (const pair of raw.split(",")) {
+    const entry = pair.trim();
+    if (!entry) continue;
+    const idx = entry.lastIndexOf(":"); // ad/e-posta icinde ':' olmaz, yine de sondan ayir
+    if (idx <= 0) continue;
+    const key = entry.slice(0, idx).trim();
+    const id = entry.slice(idx + 1).trim();
+    if (!key || !/^\d+$/.test(id)) continue; // ownerId yalniz rakam
+    map.set(key.includes("@") ? key.toLowerCase() : normPersonName(key), id);
+  }
+  envOwnerMapCache = { raw, map };
+  return map;
+}
+
+/** Env haritasindan cozer; eslesme yoksa "" doner. */
+function ownerIdFromEnv(email: string, name: string): string {
+  const map = envOwnerMap();
+  if (!map.size) return "";
+  if (email && map.has(email)) return map.get(email) as string;
+  if (name && map.has(name)) return map.get(name) as string;
+  return "";
+}
+
 /**
  * Toplantiyi yapan kisiyi HubSpot owner ID'sine cevirir.
  *
- * Once E-POSTA ile eslesir (tekil ve guvenilir), tutmazsa TAM AD ile.
- * Ad eslesmesi birden fazla owner'a denk gelirse belirsizdir -> "" doner
- * (yanlis kisiye atamaktansa bos birakmak yeglenir).
+ * Sirasiyla:
+ *   1. Owners API + E-POSTA  (tekil ve guvenilir)
+ *   2. Owners API + TAM AD   (birden fazla kisiye denk gelirse ATLANIR)
+ *   3. Owners API + tek ad   ("Bharani" -> portalda o adda TEK kisi varsa)
+ *   4. VALIDFOR_OWNER_MAP    (API erisilemezse ya da eslesme cikmazsa)
+ *
+ * Hicbiri tutmazsa "" doner — yanlis kisiye atamaktansa alan bos birakilir.
  */
 export async function resolveOwnerId(input: {
   email?: string;
@@ -559,12 +607,12 @@ export async function resolveOwnerId(input: {
   const name = normPersonName(input.name || "");
   if (!email && !name) return "";
 
-  let owners: any[];
+  let owners: any[] = [];
   try {
     owners = await listOwners();
   } catch (e: any) {
+    // API yoksa akis KESILMEZ; asagida env haritasina dusulur.
     console.error("[hubspot] owner listesi alinamadi:", e?.message || e);
-    return "";
   }
   const active = owners.filter((o) => !o?.archived);
 
@@ -576,11 +624,16 @@ export async function resolveOwnerId(input: {
     const hits = active.filter((o) => ownerFullName(o) === name);
     if (hits.length === 1 && hits[0]?.id) return String(hits[0].id);
     // Kartta yalniz ad yaziyorsa ("Bharani") ve portalda o ada sahip TEK kisi
-    // varsa o kisidir. Birden fazlaysa belirsiz -> bos doner.
+    // varsa o kisidir. Birden fazlaysa belirsiz -> env haritasina dusulur.
     if (!name.includes(" ")) {
       const firsts = active.filter((o) => normPersonName(o?.firstName) === name);
       if (firsts.length === 1 && firsts[0]?.id) return String(firsts[0].id);
     }
   }
-  return "";
+  return ownerIdFromEnv(email, name);
+}
+
+/** Env yedek haritasinda kac eslesme tanimli (tani/rapor icin). */
+export function envOwnerMapSize(): number {
+  return envOwnerMap().size;
 }
