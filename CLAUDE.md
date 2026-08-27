@@ -125,8 +125,24 @@ bir kod yolu eklersen krediler hızla tükenir.
 
 Bunlar kullanıcının açık kararları — "iyileştirme" niyetiyle değiştirme.
 
-**Demo kartı `Unassigned`'a düşer**, `Scheduled`'a değil. Taşıma kararı ekibin;
-toplantı gerçekleşince otomasyon `Meeting`'e alır. (`lib/gcal.ts`)
+**Demo kartının giriş stage'i daveti KİMİN gönderdiğine bağlı** (`lib/gcal.ts`,
+`isSelfSentInvite`). Ayırt edici, takvim etkinliğinin **organizatörü**:
+
+- **Müşteri kendi book etti** (Calendly; organizatör ortak hesap `demo@` /
+  `demo-requests@`, ya da Calendly imzası var) → kart **`Unassigned`**'a düşer,
+  sahipsizdir. `Scheduled`'a taşıma kararı ekibin.
+- **Davet bizden gitti** (ekip üyesi kendi kutusundan gönderdi, CC'de `demo@`)
+  → demo zaten sahiplenilmiştir → kart doğrudan **`Scheduled`**'a düşer ve
+  `deal_owner_validfor` + `hubspot_owner_id` **daveti gönderen kişi** olur.
+  Owner e-postadan çözülemezse alan boş kalır — yanlış kişiye atama yok.
+
+Her iki durumda da toplantı gerçekleşip transkript işlenince otomasyon kartı
+`Meeting`'e alır.
+
+**Elle gönderilen davette şirket adı:** Calendly form cevabını etkinlik
+açıklamasına yazdığı için kart gerçek adla açılır; elle gönderilen davette bu
+satır yoktur ve kart **domain adıyla** açılır (`pharmaxsolutions.com`). Davet
+açıklamasına tek satır `Company Name: PharmaX` yazmak bunu çözer.
 
 **Başlığında `demo` geçen etkinlik asla VC adayı olamaz.** "X Intro & Demo"
 gibi müşteri tanışmaları `intro` sinyaliyle VC pipeline'ına sızıyordu.

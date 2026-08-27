@@ -9,6 +9,7 @@ import {
   isVcDomain,
   extractVcCandidates,
   extractCalendarDemoCandidates,
+  isSelfSentInvite,
   extractCompanyNameFromDescription,
   findOrCreateCompany,
   findCalendarCompanyName,
@@ -170,6 +171,72 @@ check("demo aday: webmail davetli + form sirket adi -> AD ile aday",
   webmailCands.length === 1 &&
     webmailCands[0].companyName === "CHG" &&
     webmailCands[0].domain === "");
+
+// --- Daveti KIM gonderdi: Unassigned mi Scheduled mi ---
+// Kullanici kurali: Calendly rezervasyonu sahipsizdir -> Unassigned.
+// Ekipten biri kendi kutusundan davet atip CC'ye demo@ koyduysa demo zaten
+// sahiplenilmistir -> dogrudan Scheduled + owner = daveti gonderen.
+const inviteEvs = normalizeEvents([
+  {
+    // Burak kendi kutusundan gonderdi, demo@ CC'de -> BIZDEN
+    id: "s1", summary: "PharmaX - Validfor Demo",
+    start: { dateTime: iso(now + 5 * DAY) },
+    organizer: { email: "burak.ozturkmen@validfor.com" },
+    attendees: [{ email: "ali@pharmaxsolutions.com" }, { email: "demo@validfor.com" }],
+  },
+  {
+    // Calendly rezervasyonu: organizator ORTAK hesap -> MUSTERIDEN
+    id: "s2", summary: "Anshuman Kumar and Validfor Demo",
+    start: { dateTime: iso(now + 6 * DAY) },
+    organizer: { email: "demo@validfor.com" },
+    description: "Company Name: GreyRadius\n\nCancel: https://calendly.com/cancellations/x",
+    attendees: [{ email: "anshuman@greyradius.com" }, { email: "demo@validfor.com" }],
+  },
+]);
+check("organizer normalizeEvents'te tasiniyor",
+  inviteEvs[0].organizer === "burak.ozturkmen@validfor.com");
+check("bizden giden davet: selfSent", isSelfSentInvite(inviteEvs[0]) === true);
+check("Calendly rezervasyonu: selfSent DEGIL", isSelfSentInvite(inviteEvs[1]) === false);
+
+const inviteCands = extractCalendarDemoCandidates(inviteEvs, now);
+const pharmax = inviteCands.find((c) => c.domain === "pharmaxsolutions.com");
+const grey = inviteCands.find((c) => c.domain === "greyradius.com");
+check("bizden giden davet -> Scheduled adayi", Boolean(pharmax?.selfSent));
+check("bizden giden davette organizer tasinir",
+  pharmax?.organizer === "burak.ozturkmen@validfor.com");
+check("Calendly rezervasyonu -> Unassigned adayi", grey?.selfSent === false);
+
+// Ortak hesaplar gercek kisi degildir: demo-requests@ ile gonderilen de
+// rezervasyon sayilir, sahiplenilmis demo degil.
+const sharedEvs = normalizeEvents([
+  {
+    id: "s3", summary: "Acme - Validfor Demo",
+    start: { dateTime: iso(now + DAY) },
+    organizer: { email: "demo-requests@validfor.com" },
+    attendees: [{ email: "x@acme.com" }],
+  },
+  {
+    // Organizator DIS taraf (musteri kendi olusturdu) -> sahiplenilmis sayilmaz
+    id: "s4", summary: "Beta - Validfor Demo",
+    start: { dateTime: iso(now + DAY) },
+    organizer: { email: "buyer@beta.com" },
+    attendees: [{ email: "buyer@beta.com" }, { email: "demo@validfor.com" }],
+  },
+]);
+check("ortak hesap organizator -> selfSent DEGIL", isSelfSentInvite(sharedEvs[0]) === false);
+check("dis organizator -> selfSent DEGIL", isSelfSentInvite(sharedEvs[1]) === false);
+
+// Calendly imzasi her seyi yener: organizator gercek kisi olsa bile rezervasyon.
+const calendlySigned = normalizeEvents([
+  {
+    id: "s5", summary: "Gamma - Validfor Demo",
+    start: { dateTime: iso(now + DAY) },
+    organizer: { email: "ugur.metinol@validfor.com" },
+    description: "Cancel: https://calendly.com/cancellations/zz",
+    attendees: [{ email: "y@gamma.com" }],
+  },
+]);
+check("Calendly imzasi selfSent'i ezer", isSelfSentInvite(calendlySigned[0]) === false);
 
 // Sirket adi YOKSA webmail davetli hicbir sekilde aday olmaz (kural korunur).
 const webmailNoName = normalizeEvents([
