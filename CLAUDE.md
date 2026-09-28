@@ -111,6 +111,22 @@ virgülle ayrılmış `anahtar:ownerId` çiftleri, anahtar e-posta ya da ad olab
 **önce o** kullanılır; env yalnız son çaredir. Yeni seat açıldığında bu listeyi
 elle güncellemeyi unutma.
 
+### E-posta engagement okuma scope istiyor — `reply-sweep` hep "cevap yok" der
+`/crm/v3/objects/emails/batch/read` private app'te **403 MISSING_SCOPES**
+dönüyor (2026-09). İlişki okuma (`/crm/v4/associations/deals/emails/...`)
+çalışıyor, tıkanan yalnız e-posta **içeriğini** okuma. `batchReadObjects` hatayı
+yutup boş liste döndürdüğü için sonuç "hiçbirinde cevap yok" gibi görünür.
+
+**Belirti:** `reply-sweep?dry=1` → `checked: 103` ama `emailsRead: 0`.
+Vercel logunda `[hs] batchReadObjects email grubu okunamadi: HubSpot 403`.
+
+**Çözüm:** HubSpot → Ayarlar → Integrations → Private Apps → app → Scopes →
+e-posta engagement okuma iznini (`sales-email-read`) işaretle → Commit changes.
+Token değeri değişmez, redeploy gerekmez. Owners scope tuzağıyla aynı desen.
+
+**Not:** Bu iznin açılması yetmez, e-postaların HubSpot'a **loglanmış** olması da
+gerekir (Gmail eklentisinde "Log"). "Track" bu otomasyon için gereksiz.
+
 ### `plural()` haritasında olmayan tip = sessiz 404
 `lib/hubspot.ts` içindeki `TYPE_PLURAL` haritasında olmayan bir obje tipi
 olduğu gibi URL'ye geçer. `email` eksikken

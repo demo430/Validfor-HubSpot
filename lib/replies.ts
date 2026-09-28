@@ -24,8 +24,43 @@ import { PIPELINE_ID, STAGE, isInternalEmail } from "./upsert.js";
 // DIKKAT: ":" ile biten kalibin ardina \b KOYULAMAZ — ":" ve sonraki bosluk
 // ikisi de kelime-disi karakter oldugu icin orada kelime siniri YOKTUR
 // ("Auto: I am away" eslesmezdi). O yuzden "auto:" ayri bir dal.
-export const AUTO_SUBJECT_RE =
-  /^\s*(?:re\s*:\s*|fwd?\s*:\s*)*(?:(?:automatic reply|auto(?:matic)? response|autoreply|out of (?:the )?office|otomatik yan[ıi]t|ofis d[ıi][sş][ıi]nda|abwesenheit|r[eé]ponse automatique|risposta automatica|respuesta autom[aá]tica|invitation|updated invitation|invitation update|canceled event|cancelled event|accepted|declined|tentative|davet|toplant[ıi] daveti|undeliverable|mail delivery|delivery status notification)\b|auto\s*:)/i;
+//
+// Kelimeler arasi ayirici [-_\s]+ : Outlook/Exchange bazi dillerde tireli
+// yaziyor ("Out-Of-Office Re: ...", portalda gorulen gercek konu). Yalniz
+// boslugu kabul eden kalip bunlari KACIRIYORDU.
+const SEP = "[-_\\s]+";
+const AUTO_PATTERNS = [
+  ["automatic", "reply"],
+  ["auto(?:matic)?", "response"],
+  ["autoreply"],
+  ["out", "of", "(?:the", ")?office"],
+  ["otomatik", "yan[\u0131i]t"],
+  ["ofis", "d[\u0131i][s\u015f][\u0131i]nda"],
+  ["abwesenheit"],
+  ["r[e\u00e9]ponse", "automatique"],
+  ["risposta", "automatica"],
+  ["respuesta", "autom[a\u00e1]tica"],
+  ["invitation"],
+  ["updated", "invitation"],
+  ["invitation", "update"],
+  ["canceled", "event"],
+  ["cancelled", "event"],
+  ["accepted"],
+  ["declined"],
+  ["tentative"],
+  ["davet"],
+  ["toplant[\u0131i]", "daveti"],
+  ["undeliverable"],
+  ["mail", "delivery"],
+  ["delivery", "status", "notification"],
+];
+
+export const AUTO_SUBJECT_RE = new RegExp(
+  "^\\s*(?:re\\s*:\\s*|fwd?\\s*:\\s*)*(?:(?:" +
+    AUTO_PATTERNS.map((w) => w.join(SEP)).join("|") +
+    ")\\b|auto\\s*:)",
+  "i",
+);
 
 export interface ReplyCandidate {
   /** hs_email_from_email */

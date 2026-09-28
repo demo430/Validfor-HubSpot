@@ -84,6 +84,14 @@ const autoSubjects = [
   "Declined: Validfor Demo",
   "Tentative: Validfor Demo",
   "Re: Automatic reply: still away",
+  // Tireli/alt cizgili varyantlar — Outlook/Exchange boyle yaziyor.
+  // "Out-Of-Office Re: ..." portalda gorulen GERCEK bir konu.
+  "Out-Of-Office Re: Validfor - Next Steps discussion",
+  "Out-of-Office",
+  "Automatic-Reply: away",
+  "Updated-invitation: Demo",
+  "Otomatik-yanıt: izinliyim",
+  "delivery-status-notification",
   "Undeliverable: Validfor",
   "Mail Delivery Subsystem",
   "Delivery Status Notification (Failure)",
