@@ -111,6 +111,15 @@ virgülle ayrılmış `anahtar:ownerId` çiftleri, anahtar e-posta ya da ad olab
 **önce o** kullanılır; env yalnız son çaredir. Yeni seat açıldığında bu listeyi
 elle güncellemeyi unutma.
 
+### `plural()` haritasında olmayan tip = sessiz 404
+`lib/hubspot.ts` içindeki `TYPE_PLURAL` haritasında olmayan bir obje tipi
+olduğu gibi URL'ye geçer. `email` eksikken
+`/crm/v4/associations/deals/email/batch/read` isteniyordu (doğrusu `emails`),
+404 dönüyordu ve `batchReadAssociations` / `batchReadObjects` hatayı yutup
+**boş liste** döndürüyordu — sonuç: `reply-sweep` 103 kartı tarayıp hepsini
+"cevap yok" saydı. **Belirti:** `checked` büyük ama `emailsRead: 0`.
+Yeni bir obje tipiyle çalışırken haritayı önce güncelle.
+
 ### HubSpot arama limiti
 4 istek/saniye. Toplu döngülerde `await sleep(350)` freni var — kaldırma.
 `reply-sweep` bu yüzden kart başına tek tek sormaz: `batchReadAssociations` +

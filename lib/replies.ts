@@ -103,6 +103,11 @@ export interface ReplySweepResult {
   quiet: number; //   demo sonrasi cevap yok -> yerinde birakildi
   skipped: number; // demo tarihi bilinmiyor -> dokunulmadi
   errors: number;
+  // TESHIS: batch yardimcilari hatayi yutup bos liste donerse sonuc "hepsi
+  // sessiz" gibi gorunur. Bu iki sayac o durumu GORUNUR kilar: emailsRead=0
+  // ya da withEmails=0 iken checked>0 ise okuma tarafi bozuktur, veri degil.
+  emailsRead: number; // okunan e-posta engagement sayisi
+  withEmails: number; // en az bir e-postasi olan kart sayisi
   /** "[Sales] Acme: Follow-Up -> In Progress (cevap: ali@acme.com, 22.09)" */
   items: string[];
 }
@@ -119,6 +124,8 @@ export async function sweepRepliedDeals(
     quiet: 0,
     skipped: 0,
     errors: 0,
+    emailsRead: 0,
+    withEmails: 0,
     items: [],
   };
   const note = (line: string): void => {
@@ -165,6 +172,13 @@ export async function sweepRepliedDeals(
   // 3) TOPLU: e-posta engagement'larini oku (tekilleştirilmiş id listesi).
   const emailIds = Array.from(new Set(Object.values(assoc).flat()));
   const emails = await hs.batchReadObjects("email", emailIds, EMAIL_PROPS);
+  r.emailsRead = Object.keys(emails).length;
+  if (deals.length && !r.emailsRead) {
+    console.error(
+      `[reply-sweep] ${deals.length} kart icin HIC e-posta okunamadi ` +
+        `(iliski ${emailIds.length} id dondurdu) — okuma tarafi bozuk olabilir`,
+    );
+  }
 
   // 4) Karar + tasima.
   for (const d of deals) {
@@ -178,6 +192,7 @@ export async function sweepRepliedDeals(
         continue; // demo tarihi bilinmiyor -> dokunma
       }
       const mine = (assoc[d.id] || []).map((id) => emails[id]).filter(Boolean);
+      if (mine.length) r.withEmails++;
       const hit = findReply(
         mine.map((p) => ({
           from: p.hs_email_from_email,

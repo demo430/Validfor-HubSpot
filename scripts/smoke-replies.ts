@@ -12,6 +12,7 @@ import {
   REPLY_TO_STAGE,
 } from "../lib/replies.js";
 import { STAGE, computeDealStage } from "../lib/upsert.js";
+import { plural } from "../lib/hubspot.js";
 
 let pass = 0;
 const fails: string[] = [];
@@ -188,6 +189,16 @@ eq(computeDealStage(STAGE.followUp), null, "Follow-Up + yeni toplanti -> dokunma
 eq(computeDealStage(""), STAGE.meeting, "yeni deal -> Meeting (degismedi)");
 eq(computeDealStage(STAGE.scheduled), STAGE.meeting, "Scheduled -> Meeting (degismedi)");
 eq(computeDealStage("contractsent"), null, "PoC manuel bolge -> dokunma (degismedi)");
+
+// --- 9) plural() haritasi: "email" eksikse URL sessizce 404 olur ve
+// reply-sweep her karti "cevap yok" sayar (2026-09'da yasanan hata).
+eq(plural("email"), "emails", "plural('email') = 'emails' (404 regresyonu)");
+eq(plural("emails"), "emails", "plural('emails') = 'emails'");
+eq(plural("deal"), "deals", "plural('deal') = 'deals'");
+eq(plural("note"), "notes", "plural('note') = 'notes'");
+eq(plural("meeting"), "meetings", "plural('meeting') = 'meetings'");
+eq(plural("company"), "companies", "plural('company') = 'companies'");
+eq(plural("contact"), "contacts", "plural('contact') = 'contacts'");
 
 console.log(`${pass} kontrol gecti, ${fails.length} basarisiz`);
 for (const f of fails) console.error("  FAIL:", f);
