@@ -21,6 +21,9 @@ Fireflies (kayıt + özet)
   → script  backfill: Trello kartları → Fireflies → aynı pipeline (geriye dönük)
   → cron    /api/apollo-sync: Apollo listeleri → HubSpot lead girişi (günlük 07:00 UTC)
   → cron    /api/stage-sweep: "Meeting"de 7 gündür hareketsiz deal'lar → Follow-Up (günlük 07:30 UTC)
+            ├ aynı koşumda reply-sweep (ÖNCE koşar): demo sonrası müşteri cevabı gelen
+            │ Sales kartları → "In Progress". Cevap gelmiş kart "cevap yok" gerekçesiyle
+            │ Follow-Up'a taşınmasın diye stale süpürücüden önce çalışır
             ├ aynı koşumda calendar-sync: Google Takvim'deki VC toplantıları → VC Pipeline'da
             │ deal (Calendly kaynaklılar hariç — onlar demo). Gelecek toplantı → giriş stage'i;
             │ son 7 günde kaçırılmış geçmiş toplantı → doğrudan "Meeting" (?past=90 ile genişler)
@@ -33,8 +36,8 @@ Fireflies (kayıt + özet)
 ```
 
 **Pipeline yönlendirme:** normal toplantılar Sales Pipeline'a düşer (toplantı
-gerçekleşince AUTO "Meeting", ikinci toplantıda AUTO "Follow-Up"; Contract/PoC/
-Won/Lost tamamen manuel). Yatırımcı toplantıları (`meetingType=investor`) ayrı
+gerçekleşince AUTO "Meeting"; demo sonrası cevap yoksa AUTO "Follow-Up", cevap
+gelirse AUTO "In Progress"; Contract/PoC/Won/Lost tamamen manuel). Yatırımcı toplantıları (`meetingType=investor`) ayrı
 **VC Pipeline**'a düşer ve aynı ayna kuralla ilerler: Contacted elle → toplantı
 gerçekleşince AUTO "Meeting" → ikinci toplantıda AUTO "Follow-up"; Due Diligence,
 Term Sheet Received, Closed Won/Lost ve Not Priority tamamen manuel. Ayrıca
@@ -42,6 +45,17 @@ günlük süpürücü (`/api/stage-sweep`): iki pipeline'da da "Meeting"de **7 g
 hareket görmeyen** deal'lar otomatik Follow-Up'a taşınır (hareket = son loglanan
 not/e-posta/arama/toplantı ya da son Fireflies toplantısı; manuel bölgeye asla
 dokunulmaz).
+
+**Cevap süpürücüsü** (`/api/reply-sweep`, yalnız Sales): "Meeting" ya da
+"Follow-Up"ta duran bir kartın demo tarihinden **sonra** gerçek bir müşteri
+yanıtı geldiyse kart **"In Progress"**e taşınır. Cevabın olumlu/olumsuz olması
+fark etmez — ikisi de takip gerektirir, kararı insan verir.
+
+Yanıtın "gerçek" sayılması için gönderen domaini **iç domain olmamalı**
+(`VALIDFOR_INTERNAL_DOMAINS`) ve konu otomatik-yanıt/takvim-bildirimi kalıbında
+olmamalı. `hs_email_direction` alanı bu iş için **kullanılamaz**: BCC ile
+loglanan giden mailler de `INCOMING_EMAIL` olarak düşüyor (ayrıntı:
+`CLAUDE.md` → bilinen tuzaklar).
 
 **Kart alanları:** boş-alan kuralıyla otomatik dolar (insanın girdiği değer asla
 ezilmez). Bilinçli **manuel** bırakılanlar — Sales kartının son 3 alanı

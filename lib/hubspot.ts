@@ -304,6 +304,70 @@ export async function getAssociations(
   }
 }
 
+// --- TOPLU iliski okuma: fromType id'leri -> toType id listesi ---
+// Kart basina tek tek /associations cagirmak yerine 100'luk gruplar halinde
+// okur (Vercel 60 sn siniri + HubSpot 4 istek/sn freni icin sart).
+// Doner: { fromId: [toId, ...] }. Grup hatasi o grubu BOS birakir, cagriyi
+// dusurmez — eksik veri yanlis tasima uretmez (cevap bulunamaz, kart durur).
+export async function batchReadAssociations(
+  fromType: string,
+  toType: string,
+  ids: string[],
+): Promise<Record<string, string[]>> {
+  const out: Record<string, string[]> = {};
+  for (let i = 0; i < ids.length; i += 100) {
+    const part = ids.slice(i, i + 100);
+    try {
+      const json = await hsFetch<{ results?: any[] }>(
+        `/crm/v4/associations/${plural(fromType)}/${plural(toType)}/batch/read`,
+        { method: "POST", body: { inputs: part.map((id) => ({ id })) } },
+      );
+      for (const r of json.results || []) {
+        const from = String(r?.from?.id || "");
+        if (!from) continue;
+        const list = out[from] || (out[from] = []);
+        for (const t of r?.to || []) {
+          const id = String(t?.toObjectId || t?.id || "");
+          if (id) list.push(id);
+        }
+      }
+    } catch (e: any) {
+      console.error(
+        `[hs] batchReadAssociations ${fromType}->${toType} grubu okunamadi:`,
+        String(e?.message || e).slice(0, 160),
+      );
+    }
+  }
+  return out;
+}
+
+// --- TOPLU obje okuma: id listesi -> { id: properties } ---
+export async function batchReadObjects(
+  objectType: string,
+  ids: string[],
+  properties: string[],
+): Promise<Record<string, Record<string, any>>> {
+  const out: Record<string, Record<string, any>> = {};
+  for (let i = 0; i < ids.length; i += 100) {
+    const part = ids.slice(i, i + 100);
+    try {
+      const json = await hsFetch<{ results?: any[] }>(
+        `/crm/v3/objects/${plural(objectType)}/batch/read`,
+        { method: "POST", body: { properties, inputs: part.map((id) => ({ id })) } },
+      );
+      for (const r of json.results || []) {
+        if (r?.id) out[String(r.id)] = r.properties || {};
+      }
+    } catch (e: any) {
+      console.error(
+        `[hs] batchReadObjects ${objectType} grubu okunamadi:`,
+        String(e?.message || e).slice(0, 160),
+      );
+    }
+  }
+  return out;
+}
+
 // --- Notlari ara (varsayilan: son X gun, en yeni once) ---
 export interface SearchNotesOpts {
   createdAfter?: number | string;

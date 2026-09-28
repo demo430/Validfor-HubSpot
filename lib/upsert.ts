@@ -159,16 +159,25 @@ function sanitizeFilename(s: string): string {
 // Contract -> PoC -> Won/Lost. Akis (kullanici karari):
 //   Unassigned/Scheduled : ELLE yonetilir (takim karar verip tasir)
 //   Meeting              : toplanti GERCEKLESINCE otomatik
-//   Follow-Up            : ayni deal'a IKINCI toplanti gelince otomatik
+//   Follow-Up            : demo yapildi, demo SONRASI cevap HENUZ yok
+//                          (Meeting'de 7 gun sessizlik -> sweep tasir; ya da
+//                          ayni deal'a ikinci toplanti gelince)
+//   In Progress          : demo yapildi ve musteriden cevap GELDI (olumlu ya da
+//                          olumsuz) — takip edilmesi gerekiyor. Meeting VE
+//                          Follow-Up'tan tasinir; gun sayisina BAKMAZ.
 //   Contract/PoC/Won/Lost: tamamen manuel — otomasyon DOKUNMAZ
 // DIKKAT: Ic ID'ler etiketlerle uyusmaz (HubSpot yeniden adlandirmada ID korunur):
 // "Follow-Up"=closedwon, "Contract"=decisionmakerboughtin, "PoC"=contractsent.
+// In Progress pipeline'da gorsel olarak Meeting ile Follow-Up ARASINDA duruyor
+// ama ANLAMSAL olarak Follow-Up'tan SONRA gelir (cevap gelmis = daha ileri);
+// STAGE_ORDER bu yuzden inProgress'i 4 ile isaretler.
 export const PIPELINE_ID = "default";
 export const STAGE = {
   unassigned: "appointmentscheduled", // 0 — elle
   scheduled: "qualifiedtobuy", //        1 — elle
   meeting: "5732504815", //              2 — AUTO: toplanti gerceklesti
-  followUp: "closedwon", //              3 — AUTO: ikinci toplanti (follow-up yapildi)
+  followUp: "closedwon", //              3 — AUTO: demo oldu, cevap yok
+  inProgress: "6147225815", //           4 — AUTO: musteri cevabi geldi
 } as const;
 
 // Ayri "VC Pipeline": yatirimci gorusmeleri (meetingType=investor) buraya
@@ -214,6 +223,7 @@ const STAGE_ORDER: Record<string, number> = {
   [STAGE.scheduled]: 1,
   [STAGE.meeting]: 2,
   [STAGE.followUp]: 3,
+  [STAGE.inProgress]: 4,
 };
 
 // "No show" stage'i ETIKETTEN cozulur (id sabitlenmez: pipeline sik yeniden
@@ -282,7 +292,8 @@ export function computeDealStage(currentStage: string): string | null {
   if (!cur || STAGE_ORDER[cur] <= STAGE_ORDER[STAGE.scheduled]) return STAGE.meeting;
   // Meeting'de yeni toplanti = follow-up yapildi -> Follow-Up.
   if (cur === STAGE.meeting) return STAGE.followUp;
-  // Follow-Up ve sonrasi: otomasyon ilerletmez.
+  // Follow-Up ve In Progress: yeni toplanti stage'i ILERLETMEZ ve GERI GOTURMEZ.
+  // In Progress'e yalniz musteri cevabi tasir (bkz. lib/replies.ts).
   return null;
 }
 

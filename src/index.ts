@@ -6,6 +6,7 @@ import { backfillCompanies } from "../lib/backfill.js";
 import { sweepStaleDeals, sweepEntryMismatch, DEFAULT_STALE_DAYS } from "../lib/sweep.js";
 import { syncScheduledVcDeals, syncCalendarCompanies, syncCalendarDemoDeals } from "../lib/gcal.js";
 import { syncCalendlyDemoDeals } from "../lib/calendly.js";
+import { sweepRepliedDeals } from "../lib/replies.js";
 
 // Validfor Relay — Fireflies toplantilarini Claude (Sonnet 5) uzerinden HubSpot'a
 // tasiyan sade Hono uygulamasi. Webhook her seyi SENKRON yapar:
@@ -218,15 +219,31 @@ app.get("/api/backfill-companies", (c) => {
   return getWriteGate(c) ?? runCompanyBackfill(c);
 });
 
-// --- Hareketsiz deal supurucusu: Meeting'de 7 gundur hareket yoksa Follow-Up
-// (Sales + VC). Vercel Cron gunluk cagirir (GET + Bearer CRON_SECRET); elle:
-// ?key=SECRET[&dry=1][&days=7].
+// --- Gunluk stage supurucusu. SIRA ONEMLI:
+//   1) reply-sweep : demo sonrasi MUSTERI CEVABI gelen kartlar -> In Progress
+//   2) stale-sweep : Meeting'de 7 gundur hareket yoksa -> Follow-Up (Sales + VC)
+// Cevap supurucusu ONCE kosar: cevap gelmis bir kart "cevap yok" gerekcesiyle
+// Follow-Up'a tasinmasin. Vercel Cron gunluk cagirir (GET + Bearer
+// CRON_SECRET); elle: ?key=SECRET[&dry=1][&days=7].
 async function runStageSweep(c: any): Promise<Response> {
   const denied = relayAuthError(c, "stage-sweep");
   if (denied) return denied;
   const dry = ["1", "true"].includes(String(c.req.query("dry") || "").toLowerCase());
   const days = Math.min(Math.max(Number(c.req.query("days")) || DEFAULT_STALE_DAYS, 1), 60);
   try {
+    // 1) Musteri cevabi gelenler -> In Progress. Stale sweep'ten ONCE; hatasi
+    // supurucunun geri kalanini DUSURMEZ.
+    let replies: any = null;
+    try {
+      replies = await sweepRepliedDeals({ dry });
+      console.log(
+        `[reply-sweep] dry=${dry} checked=${replies.checked} moved=${replies.moved} ` +
+          `quiet=${replies.quiet} skipped=${replies.skipped} errors=${replies.errors}`,
+      );
+    } catch (e: any) {
+      console.error("[reply-sweep] hata:", e?.message || e);
+      replies = { ok: false, error: String(e?.message || e).slice(0, 200) };
+    }
     const r = await sweepStaleDeals({ days, dry });
     console.log(
       `[stage-sweep] dry=${dry} days=${days} checked=${r.checked} moved=${r.moved} ` +
@@ -305,6 +322,7 @@ async function runStageSweep(c: any): Promise<Response> {
         dry,
         days,
         ...r,
+        ...(replies ? { replies } : {}),
         ...(entryFix ? { entryFix } : {}),
         ...(calendar ? { calendar } : {}),
         ...(calendarDemos ? { calendarDemos } : {}),
@@ -317,6 +335,43 @@ async function runStageSweep(c: any): Promise<Response> {
     return c.json({ ok: false, error: String(e?.message || e).slice(0, 200) }, 200);
   }
 }
+// --- Cevap supurucusu (elle tetikleme/onizleme): demo sonrasi musteri cevabi
+// gelen Sales kartlarini In Progress'e tasir. Gunluk otomatik kosum
+// stage-sweep cron'unun icinde; bu route elle kosmak ve dry onizlemesi icin.
+async function runReplySweep(c: any): Promise<Response> {
+  const denied = relayAuthError(c, "reply-sweep");
+  if (denied) return denied;
+  const dry = ["1", "true"].includes(String(c.req.query("dry") || "").toLowerCase());
+  const maxRaw = Number(c.req.query("max"));
+  const max = isNaN(maxRaw) ? undefined : maxRaw;
+  try {
+    const r = await sweepRepliedDeals({ dry, max });
+    console.log(
+      `[reply-sweep] dry=${dry} checked=${r.checked} moved=${r.moved} ` +
+        `quiet=${r.quiet} skipped=${r.skipped} errors=${r.errors}`,
+    );
+    return c.json({ ok: true, dry, ...r }, 200);
+  } catch (e: any) {
+    console.error("[reply-sweep] hata:", e?.message || e);
+    return c.json({ ok: false, error: String(e?.message || e).slice(0, 200) }, 200);
+  }
+}
+app.post("/api/reply-sweep", (c) => runReplySweep(c));
+app.get("/api/reply-sweep", (c) => {
+  const bearer = (c.req.header("authorization") || "").replace(/^Bearer\s+/i, "");
+  const hasKey = Boolean(c.req.query("key") || bearer || c.req.header("x-webhook-secret"));
+  if (!hasKey) {
+    return c.json({
+      ok: true,
+      route: "reply-sweep",
+      hint: "demo sonrasi musteri cevabi gelen kartlari In Progress'e tasir; x-webhook-secret ile POST, GET ?dry=1 onizler",
+    });
+  }
+  const denied = relayAuthError(c, "reply-sweep");
+  if (denied) return denied;
+  return getWriteGate(c) ?? runReplySweep(c);
+});
+
 app.post("/api/stage-sweep", (c) => runStageSweep(c));
 app.get("/api/stage-sweep", (c) => {
   const bearer = (c.req.header("authorization") || "").replace(/^Bearer\s+/i, "");
