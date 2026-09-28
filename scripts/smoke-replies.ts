@@ -3,6 +3,7 @@
 process.env.VALIDFOR_INTERNAL_DOMAINS ||= "validfor.com";
 
 import {
+  findContactReply,
   isCustomerReply,
   findReply,
   demoMs,
@@ -207,6 +208,60 @@ eq(plural("note"), "notes", "plural('note') = 'notes'");
 eq(plural("meeting"), "meetings", "plural('meeting') = 'meetings'");
 eq(plural("company"), "companies", "plural('company') = 'companies'");
 eq(plural("contact"), "contacts", "plural('contact') = 'contacts'");
+
+// --- 10) YEDEK yol: kisi uzerindeki hs_sales_email_last_replied ---
+eq(findContactReply([], DEMO), null, "yedek: bos liste -> null");
+eq(
+  findContactReply([{ email: "ali@acme.com", replied: "2026-09-09T10:00:00Z" }], DEMO),
+  null,
+  "yedek: demodan ONCEKI yanit sayilmaz",
+);
+eq(
+  findContactReply([{ email: "ali@acme.com", replied: "2026-09-10T12:00:00Z" }], DEMO),
+  null,
+  "yedek: demo ANINDAKI damga sayilmaz (strict >)",
+);
+{
+  const hit = findContactReply(
+    [{ email: "ali@acme.com", replied: "2026-09-14T09:00:00Z" }],
+    DEMO,
+  );
+  ok(hit != null, "yedek: demodan SONRAKI yanit bulunur");
+  eq(hit?.email, "ali@acme.com", "yedek: dogru kisi");
+}
+// Ic kisiler de bu damgayi tasiyor (portalda: ugur.metinol@validfor.com) —
+// elenmeleri sart, yoksa her kart "cevap geldi" olur.
+eq(
+  findContactReply([{ email: "ugur.metinol@validfor.com", replied: "2026-09-14T09:00:00Z" }], DEMO),
+  null,
+  "yedek: IC kisinin damgasi sayilmaz",
+);
+{
+  const hit = findContactReply(
+    [
+      { email: "ugur.metinol@validfor.com", replied: "2026-09-20T09:00:00Z" },
+      { email: "ali@acme.com", replied: "2026-09-12T09:00:00Z" },
+      { email: "veli@acme.com", replied: "2026-09-15T09:00:00Z" },
+    ],
+    DEMO,
+  );
+  eq(hit?.email, "veli@acme.com", "yedek: ic kisi atlanir, EN YENI dis kisi secilir");
+}
+eq(
+  findContactReply([{ email: "", replied: "2026-09-14T09:00:00Z" }], DEMO),
+  null,
+  "yedek: bos e-posta sayilmaz",
+);
+eq(
+  findContactReply([{ email: "ali@acme.com", replied: null }], DEMO),
+  null,
+  "yedek: damga yoksa sayilmaz",
+);
+eq(
+  findContactReply([{ email: "ali@acme.com", replied: "gecersiz" }], DEMO),
+  null,
+  "yedek: parse edilemeyen damga sayilmaz",
+);
 
 console.log(`${pass} kontrol gecti, ${fails.length} basarisiz`);
 for (const f of fails) console.error("  FAIL:", f);
