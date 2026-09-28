@@ -127,20 +127,29 @@ Token değeri değişmez, redeploy gerekmez. Owners scope tuzağıyla aynı dese
 **Not:** Bu iznin açılması yetmez, e-postaların HubSpot'a **loglanmış** olması da
 gerekir (Gmail eklentisinde "Log").
 
-**Yedek yol:** Scope açılamıyorsa `reply-sweep` otomatik olarak kişideki
-`hs_sales_email_last_replied` damgasına düşer (yalnız kişi okuma izni ister).
-Yanıttaki `source` alanı hangi yolun koştuğunu söyler: `email` = birincil,
-`contact` = yedek, `none` = hiçbiri. Taşıma satırlarında `[yedek]` etiketi çıkar.
+### `hs_sales_email_last_replied` GÜVENİLMEZ — yedek yol varsayılan KAPALI
+Scope kapalıyken kişideki bu damgaya düşmek denendi ve **yanlış pozitif** çıktı.
+2026-09-28 ölçümü: Merck / Baxter / Qualitech / Arvato kartlarında karttaki tek
+e-posta **bizim giden mailimizdi** (`"Following up on our last conversation"`,
+`elif.yesil@validfor.com`) — müşteri cevabı **yoktu** — ama kişilerin damgası o
+günü gösteriyordu. Yani HubSpot bu alanı **takipli giden** mail için de
+doldurabiliyor, sadece gelen yanıt için değil.
 
-Yedek yolun **iki sınırı** var, bu yüzden scope açılınca birincil yol tercih
-edilir:
-1. Bu damgayı yalnız HubSpot'un **takip ettiği** ("Track") mailler doldurur —
-   yani birincil yolda gereksiz olan "Track" kutusu yedek yolda **gerekli**.
-2. Konu bilgisi yok, dolayısıyla tatil otomatik yanıtı gerçek cevaptan ayırt
-   edilemez; yanlış pozitif olasılığı birincil yoldan yüksektir.
+Bu yüzden yedek yol **kendiliğinden devreye girmez**: günlük cron yalnız
+birincil yolu kullanır. Elle denemek için `?fallback=1` — sonucu **insan
+doğrulamalı**, doğrudan yazmaya güvenme. Kalıcı çözüm `sales-email-read`
+scope'udur.
+
+Yanıttaki `source` alanı hangi yolun koştuğunu söyler: `email` = birincil,
+`contact` = yedek (yalnız `?fallback=1` ile), `none` = hiçbiri. Yedek yoldan
+gelen taşıma satırlarında `[yedek]` etiketi çıkar.
 
 İç kişiler de bu damgayı taşıyabiliyor (`ugur.metinol@validfor.com` portalda
 öyleydi), o yüzden iç domain elenir.
+
+**Ayrıca dikkat:** `ff_last_meeting_date` boş kartlarda demo tarihi
+`createdate`'e düşer. 2026-07-28 toplu içe aktarımından gelen kartlarda bu
+tarih gerçek bir demo değil — o kartlarda "demo sonrası" güvenilir değil.
 
 ### `plural()` haritasında olmayan tip = sessiz 404
 `lib/hubspot.ts` içindeki `TYPE_PLURAL` haritasında olmayan bir obje tipi

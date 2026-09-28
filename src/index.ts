@@ -382,8 +382,13 @@ async function runReplySweep(c: any): Promise<Response> {
   const dry = ["1", "true"].includes(String(c.req.query("dry") || "").toLowerCase());
   const maxRaw = Number(c.req.query("max"));
   const max = isNaN(maxRaw) ? undefined : maxRaw;
+  // ?fallback=1: kisi damgasi yedek yolu (YANLIS POZITIF uretir, bkz.
+  // lib/replies.ts notu). Cron bunu ASLA gecmez; yalniz elle deneme icin.
+  const allowContactFallback = ["1", "true"].includes(
+    String(c.req.query("fallback") || "").toLowerCase(),
+  );
   try {
-    const r = await sweepRepliedDeals({ dry, max });
+    const r = await sweepRepliedDeals({ dry, max, allowContactFallback });
     console.log(
       `[reply-sweep] dry=${dry} checked=${r.checked} moved=${r.moved} ` +
         `quiet=${r.quiet} skipped=${r.skipped} errors=${r.errors}`,
