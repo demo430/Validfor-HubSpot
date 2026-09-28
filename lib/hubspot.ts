@@ -344,7 +344,7 @@ export async function batchReadAssociations(
     } catch (e: any) {
       console.error(
         `[hs] batchReadAssociations ${fromType}->${toType} grubu okunamadi:`,
-        String(e?.message || e).slice(0, 160),
+        String(e?.message || e).slice(0, 400),
       );
     }
   }
@@ -371,7 +371,7 @@ export async function batchReadObjects(
     } catch (e: any) {
       console.error(
         `[hs] batchReadObjects ${objectType} grubu okunamadi:`,
-        String(e?.message || e).slice(0, 160),
+        String(e?.message || e).slice(0, 400),
       );
     }
   }

@@ -111,6 +111,37 @@ virgülle ayrılmış `anahtar:ownerId` çiftleri, anahtar e-posta ya da ad olab
 **önce o** kullanılır; env yalnız son çaredir. Yeni seat açıldığında bu listeyi
 elle güncellemeyi unutma.
 
+### E-posta engagement okuma scope istiyor — `reply-sweep` hep "cevap yok" der
+`/crm/v3/objects/emails/batch/read` private app'te **403 MISSING_SCOPES**
+dönüyor (2026-09). İlişki okuma (`/crm/v4/associations/deals/emails/...`)
+çalışıyor, tıkanan yalnız e-posta **içeriğini** okuma. `batchReadObjects` hatayı
+yutup boş liste döndürdüğü için sonuç "hiçbirinde cevap yok" gibi görünür.
+
+**Belirti:** `reply-sweep?dry=1` → `checked: 103` ama `emailsRead: 0`.
+Vercel logunda `[hs] batchReadObjects email grubu okunamadi: HubSpot 403`.
+
+**Çözüm:** HubSpot → Ayarlar → Integrations → Private Apps → app → Scopes →
+e-posta engagement okuma iznini (`sales-email-read`) işaretle → Commit changes.
+Token değeri değişmez, redeploy gerekmez. Owners scope tuzağıyla aynı desen.
+
+**Not:** Bu iznin açılması yetmez, e-postaların HubSpot'a **loglanmış** olması da
+gerekir (Gmail eklentisinde "Log").
+
+**Yedek yol:** Scope açılamıyorsa `reply-sweep` otomatik olarak kişideki
+`hs_sales_email_last_replied` damgasına düşer (yalnız kişi okuma izni ister).
+Yanıttaki `source` alanı hangi yolun koştuğunu söyler: `email` = birincil,
+`contact` = yedek, `none` = hiçbiri. Taşıma satırlarında `[yedek]` etiketi çıkar.
+
+Yedek yolun **iki sınırı** var, bu yüzden scope açılınca birincil yol tercih
+edilir:
+1. Bu damgayı yalnız HubSpot'un **takip ettiği** ("Track") mailler doldurur —
+   yani birincil yolda gereksiz olan "Track" kutusu yedek yolda **gerekli**.
+2. Konu bilgisi yok, dolayısıyla tatil otomatik yanıtı gerçek cevaptan ayırt
+   edilemez; yanlış pozitif olasılığı birincil yoldan yüksektir.
+
+İç kişiler de bu damgayı taşıyabiliyor (`ugur.metinol@validfor.com` portalda
+öyleydi), o yüzden iç domain elenir.
+
 ### `plural()` haritasında olmayan tip = sessiz 404
 `lib/hubspot.ts` içindeki `TYPE_PLURAL` haritasında olmayan bir obje tipi
 olduğu gibi URL'ye geçer. `email` eksikken

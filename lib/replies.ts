@@ -24,8 +24,43 @@ import { PIPELINE_ID, STAGE, isInternalEmail } from "./upsert.js";
 // DIKKAT: ":" ile biten kalibin ardina \b KOYULAMAZ — ":" ve sonraki bosluk
 // ikisi de kelime-disi karakter oldugu icin orada kelime siniri YOKTUR
 // ("Auto: I am away" eslesmezdi). O yuzden "auto:" ayri bir dal.
-export const AUTO_SUBJECT_RE =
-  /^\s*(?:re\s*:\s*|fwd?\s*:\s*)*(?:(?:automatic reply|auto(?:matic)? response|autoreply|out of (?:the )?office|otomatik yan[ıi]t|ofis d[ıi][sş][ıi]nda|abwesenheit|r[eé]ponse automatique|risposta automatica|respuesta autom[aá]tica|invitation|updated invitation|invitation update|canceled event|cancelled event|accepted|declined|tentative|davet|toplant[ıi] daveti|undeliverable|mail delivery|delivery status notification)\b|auto\s*:)/i;
+//
+// Kelimeler arasi ayirici [-_\s]+ : Outlook/Exchange bazi dillerde tireli
+// yaziyor ("Out-Of-Office Re: ...", portalda gorulen gercek konu). Yalniz
+// boslugu kabul eden kalip bunlari KACIRIYORDU.
+const SEP = "[-_\\s]+";
+const AUTO_PATTERNS = [
+  ["automatic", "reply"],
+  ["auto(?:matic)?", "response"],
+  ["autoreply"],
+  ["out", "of", "(?:the", ")?office"],
+  ["otomatik", "yan[\u0131i]t"],
+  ["ofis", "d[\u0131i][s\u015f][\u0131i]nda"],
+  ["abwesenheit"],
+  ["r[e\u00e9]ponse", "automatique"],
+  ["risposta", "automatica"],
+  ["respuesta", "autom[a\u00e1]tica"],
+  ["invitation"],
+  ["updated", "invitation"],
+  ["invitation", "update"],
+  ["canceled", "event"],
+  ["cancelled", "event"],
+  ["accepted"],
+  ["declined"],
+  ["tentative"],
+  ["davet"],
+  ["toplant[\u0131i]", "daveti"],
+  ["undeliverable"],
+  ["mail", "delivery"],
+  ["delivery", "status", "notification"],
+];
+
+export const AUTO_SUBJECT_RE = new RegExp(
+  "^\\s*(?:re\\s*:\\s*|fwd?\\s*:\\s*)*(?:(?:" +
+    AUTO_PATTERNS.map((w) => w.join(SEP)).join("|") +
+    ")\\b|auto\\s*:)",
+  "i",
+);
 
 export interface ReplyCandidate {
   /** hs_email_from_email */
@@ -84,11 +119,50 @@ export function findReply(
   return best;
 }
 
+// --- YEDEK YOL: kisi uzerindeki hs_sales_email_last_replied ---
+// E-posta engagement okuma scope'u (sales-email-read) kapaliysa 403 alinir ve
+// birincil yol hicbir sey goremez. O durumda kartin KISILERINDEKI
+// hs_sales_email_last_replied damgasina bakilir — bunun icin yalniz kisi
+// okuma izni gerekir (bizde var). Portalda dogrulandi: bu damga gercek yanit
+// saatiyle BIREBIR ayni (sandra.jerez 22.09 22:00:56, y.almouti 22.09 13:07:47).
+//
+// SINIRLARI — birincil yol her zaman tercih edilir:
+//   1) Yalniz HubSpot'un TAKIP ETTIGI ("Track") mailler bu alani doldurur.
+//   2) Konu bilgisi yok -> tatil otomatik yaniti gercek cevaptan ayirt EDILEMEZ,
+//      yani yanlis pozitif olasiligi birincil yoldan yuksektir.
+//   3) Ic kisiler de bu damgayi tasiyabiliyor (orn. ugur.metinol@validfor.com),
+//      o yuzden ic domain elenir.
+export interface ContactReplyCandidate {
+  email?: string | null;
+  /** hs_sales_email_last_replied */
+  replied?: string | null;
+}
+
+/** SAF: kartin kisileri arasinda demodan SONRA yanitlayan DIS kisi var mi? */
+export function findContactReply(
+  contacts: ContactReplyCandidate[],
+  afterMs: number,
+): (ContactReplyCandidate & { ms: number }) | null {
+  let best: (ContactReplyCandidate & { ms: number }) | null = null;
+  for (const c of contacts) {
+    const mail = String(c?.email || "")
+      .trim()
+      .toLowerCase();
+    if (!mail.includes("@") || isInternalEmail(mail)) continue;
+    const ms = parseMs(c?.replied);
+    if (ms == null || ms <= afterMs) continue;
+    if (!best || ms > best.ms) best = { ...c, ms };
+  }
+  return best;
+}
+
 // Yalniz Sales pipeline. Meeting VE Follow-Up'tan In Progress'e tasinir;
 // manuel bolgeye (Contract/PoC/Won/Lost/No show/Partnership) DOKUNULMAZ ve
 // hicbir kart GERI goturulmez.
 export const REPLY_FROM_STAGES: string[] = [STAGE.meeting, STAGE.followUp];
 export const REPLY_TO_STAGE: string = STAGE.inProgress;
+
+const CONTACT_PROPS = ["email", "hs_sales_email_last_replied"];
 
 const EMAIL_PROPS = [
   "hs_email_from_email",
@@ -108,6 +182,13 @@ export interface ReplySweepResult {
   // ya da withEmails=0 iken checked>0 ise okuma tarafi bozuktur, veri degil.
   emailsRead: number; // okunan e-posta engagement sayisi
   withEmails: number; // en az bir e-postasi olan kart sayisi
+  /**
+   * Hangi sinyal kullanildi:
+   *   "email"   birincil yol (e-posta engagement'lari okundu)
+   *   "contact" YEDEK yol (scope kapali -> hs_sales_email_last_replied)
+   *   "none"    hicbiri kullanilamadi
+   */
+  source: "email" | "contact" | "none";
   /** "[Sales] Acme: Follow-Up -> In Progress (cevap: ali@acme.com, 22.09)" */
   items: string[];
 }
@@ -126,6 +207,7 @@ export async function sweepRepliedDeals(
     errors: 0,
     emailsRead: 0,
     withEmails: 0,
+    source: "none",
     items: [],
   };
   const note = (line: string): void => {
@@ -173,10 +255,28 @@ export async function sweepRepliedDeals(
   const emailIds = Array.from(new Set(Object.values(assoc).flat()));
   const emails = await hs.batchReadObjects("email", emailIds, EMAIL_PROPS);
   r.emailsRead = Object.keys(emails).length;
+  if (r.emailsRead) r.source = "email";
+
+  // Birincil yol hicbir e-posta okuyamadiysa (scope 403) YEDEK yola gec.
+  let contactAssoc: Record<string, string[]> = {};
+  let contacts: Record<string, Record<string, any>> = {};
   if (deals.length && !r.emailsRead) {
     console.error(
       `[reply-sweep] ${deals.length} kart icin HIC e-posta okunamadi ` +
-        `(iliski ${emailIds.length} id dondurdu) — okuma tarafi bozuk olabilir`,
+        `(iliski ${emailIds.length} id dondurdu) — sales-email-read scope'u ` +
+        `kapali olabilir; hs_sales_email_last_replied yedek yoluna geciliyor`,
+    );
+    contactAssoc = await hs.batchReadAssociations(
+      "deal",
+      "contact",
+      deals.map((d) => d.id),
+    );
+    const contactIds = Array.from(new Set(Object.values(contactAssoc).flat()));
+    contacts = await hs.batchReadObjects("contact", contactIds, CONTACT_PROPS);
+    if (Object.keys(contacts).length) r.source = "contact";
+    console.log(
+      `[reply-sweep] yedek yol: ${contactIds.length} kisi okundu ` +
+        `(${Object.keys(contacts).length} basarili)`,
     );
   }
 
@@ -191,16 +291,26 @@ export async function sweepRepliedDeals(
         r.skipped++;
         continue; // demo tarihi bilinmiyor -> dokunma
       }
-      const mine = (assoc[d.id] || []).map((id) => emails[id]).filter(Boolean);
-      if (mine.length) r.withEmails++;
-      const hit = findReply(
-        mine.map((p) => ({
-          from: p.hs_email_from_email,
-          subject: p.hs_email_subject,
-          timestamp: p.hs_timestamp,
-        })),
-        since,
-      );
+      let hit: { from?: string | null; ms: number } | null = null;
+      if (r.source === "email") {
+        const mine = (assoc[d.id] || []).map((id) => emails[id]).filter(Boolean);
+        if (mine.length) r.withEmails++;
+        hit = findReply(
+          mine.map((p) => ({
+            from: p.hs_email_from_email,
+            subject: p.hs_email_subject,
+            timestamp: p.hs_timestamp,
+          })),
+          since,
+        );
+      } else if (r.source === "contact") {
+        const mine = (contactAssoc[d.id] || []).map((id) => contacts[id]).filter(Boolean);
+        const c = findContactReply(
+          mine.map((p) => ({ email: p.email, replied: p.hs_sales_email_last_replied })),
+          since,
+        );
+        if (c) hit = { from: c.email, ms: c.ms };
+      }
       if (!hit) {
         r.quiet++;
         continue;
@@ -214,7 +324,8 @@ export async function sweepRepliedDeals(
       r.moved++;
       const label = fromStage === STAGE.meeting ? "Meeting" : "Follow-Up";
       const when = new Date(hit.ms).toISOString().slice(0, 10);
-      note(`[Sales] ${name}: ${label} -> In Progress (cevap: ${hit.from}, ${when})`);
+      const via = r.source === "contact" ? " [yedek]" : "";
+      note(`[Sales] ${name}: ${label} -> In Progress (cevap: ${hit.from}, ${when})${via}`);
     } catch (e: any) {
       r.errors++;
       note(`HATA [Sales] ${name}: ${String(e?.message || e).slice(0, 160)}`);
