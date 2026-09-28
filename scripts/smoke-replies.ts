@@ -14,6 +14,7 @@ import {
 } from "../lib/replies.js";
 import { STAGE, computeDealStage } from "../lib/upsert.js";
 import { plural } from "../lib/hubspot.js";
+import { readFileSync } from "node:fs";
 
 let pass = 0;
 const fails: string[] = [];
@@ -262,6 +263,30 @@ eq(
   null,
   "yedek: parse edilemeyen damga sayilmaz",
 );
+
+// --- 11) Yedek yol OPT-IN olmali: cron'un yanlis pozitif tasimamasi icin
+// sweepRepliedDeals varsayilan olarak yedek yolu KULLANMAZ. Burada imzayi
+// kontrol ediyoruz (ag cagrisi yapmadan): allowContactFallback alani var mi
+// ve varsayilani kapali mi — regresyonu yakalamak icin kaynak denetimi.
+{
+  const src = readFileSync(new URL("../lib/replies.ts", import.meta.url), "utf8");
+  ok(
+    src.includes("allowContactFallback"),
+    "sweepRepliedDeals allowContactFallback secenegini tasiyor",
+  );
+  ok(
+    src.includes("const allowFallback = !!opts.allowContactFallback;"),
+    "yedek yol varsayilan KAPALI (opt-in)",
+  );
+  ok(
+    src.includes("!r.emailsRead && allowFallback"),
+    "yedek yol yalniz allowFallback true iken kosar",
+  );
+  ok(
+    /yedek yol KAPALI/.test(src),
+    "yedek yol kapaliyken sebebi loglanir",
+  );
+}
 
 console.log(`${pass} kontrol gecti, ${fails.length} basarisiz`);
 for (const f of fails) console.error("  FAIL:", f);

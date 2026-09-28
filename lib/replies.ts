@@ -119,7 +119,17 @@ export function findReply(
   return best;
 }
 
-// --- YEDEK YOL: kisi uzerindeki hs_sales_email_last_replied ---
+// --- YEDEK YOL (VARSAYILAN KAPALI — GUVENILMEZ) ---
+// hs_sales_email_last_replied YANLIS POZITIF uretiyor. 2026-09-28'de portalda
+// olculdu: Merck / Baxter / Qualitech / Arvato kartlarinda tek e-posta BIZIM
+// giden mailimizdi ("Following up on our last conversation", from
+// elif.yesil@validfor.com) — musteri cevabi YOKTU — ama kisilerin damgasi
+// o gunu gosteriyordu. Yani HubSpot bu alani TAKIPLI GIDEN mail icin de
+// dolduruyor, sadece gelen yanit icin degil.
+//
+// Bu yuzden yedek yol artik KENDILIGINDEN DEVREYE GIRMEZ. Gunluk cron yalniz
+// birincil yolu kullanir; yedek yalniz elle ?fallback=1 ile denenebilir ve
+// sonucu INSAN dogrulamalidir. Kalici cozum: sales-email-read scope'u.
 // E-posta engagement okuma scope'u (sales-email-read) kapaliysa 403 alinir ve
 // birincil yol hicbir sey goremez. O durumda kartin KISILERINDEKI
 // hs_sales_email_last_replied damgasina bakilir — bunun icin yalniz kisi
@@ -194,10 +204,12 @@ export interface ReplySweepResult {
 }
 
 export async function sweepRepliedDeals(
-  opts: { dry?: boolean; max?: number } = {},
+  opts: { dry?: boolean; max?: number; allowContactFallback?: boolean } = {},
 ): Promise<ReplySweepResult> {
   if (!process.env.HUBSPOT_TOKEN) throw new Error("HUBSPOT_TOKEN tanimli degil");
   const dry = !!opts.dry;
+  // Yedek yol BILINCLI olarak opt-in: cron asla kullanmaz (bkz. yukaridaki not).
+  const allowFallback = !!opts.allowContactFallback;
   const max = Math.min(Math.max(opts.max ?? 400, 1), 2000);
   const r: ReplySweepResult = {
     checked: 0,
@@ -264,7 +276,20 @@ export async function sweepRepliedDeals(
     console.error(
       `[reply-sweep] ${deals.length} kart icin HIC e-posta okunamadi ` +
         `(iliski ${emailIds.length} id dondurdu) — sales-email-read scope'u ` +
-        `kapali olabilir; hs_sales_email_last_replied yedek yoluna geciliyor`,
+        `kapali olabilir`,
+    );
+  }
+  if (deals.length && !r.emailsRead && !allowFallback) {
+    console.error(
+      "[reply-sweep] yedek yol KAPALI (yanlis pozitif uretiyor) — hicbir kart " +
+        "tasinmadi. Kalici cozum: sales-email-read scope'u. Elle denemek icin " +
+        "?fallback=1 (sonucu insan dogrulamali).",
+    );
+  }
+  if (deals.length && !r.emailsRead && allowFallback) {
+    console.warn(
+      "[reply-sweep] YEDEK YOL elle acildi — hs_sales_email_last_replied " +
+        "yanlis pozitif uretebilir, sonucu dogrulamadan yazmayin",
     );
     contactAssoc = await hs.batchReadAssociations(
       "deal",
