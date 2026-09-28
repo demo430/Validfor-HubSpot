@@ -45,6 +45,8 @@ Vercel → Settings → Environment Variables altında tanımlı:
 | `VALIDFOR_INTERNAL_DOMAINS` | İç katılımcı sayılan domainler |
 | `VC_EXCLUDE_DOMAINS` | Asla otomatik VC kartı açılmayacak domainler |
 
+| `VALIDFOR_OWNER_MAP` | Owners API'si 403 verirse Deal owner yedek eşlemesi |
+
 Ayrıca kodda okunan ama yukarıda listelenmeyenler: `HUBSPOT_API_BASE`
 (EU portal → `https://api-eu1.hubapi.com`), `APOLLO_LIST_NAMES` (virgüllü liste
 adları), `GOOGLE_CALENDAR_API_KEY` (service account yoksa yalnız herkese açık
@@ -87,6 +89,28 @@ Doğrusu:
 Vercel Hobby'de cron sınırı 2'dir — bu yüzden `calendar-sync` ve
 `calendar-demos` ayrı cron değil, `stage-sweep` içinden çağrılır.
 
+### Owners API'si scope istiyor — Deal owner sessizce boş kalır
+`/crm/v3/owners` çağrısı `crm.objects.owners.read` scope'unu ister. Private
+app'e bu izin verilmemişse HubSpot **403 MISSING_SCOPES** döner;
+`resolveOwnerId` hatayı yutup `""` döndüğü için (yanlış kişiye atamamak adına)
+`hubspot_owner_id` **sessizce boş kalır** — `deal_owner_validfor` dolduğu için
+sorun ilk bakışta görünmez. **Belirti:** kartta "Deal Owner Validfor" yazıyor
+ama kanban'da Deal owner boş.
+
+**Teşhis:** `curl -s "https://validfor.vercel.app/api/backfill-owners?dry=1"
+-H "x-webhook-secret: SECRET"` → `scanned:0` + `errors:1` ise sebep budur
+(Vercel logunda `[owner-backfill] owner listesi alinamadi: HubSpot 403`).
+
+**Kalıcı çözüm:** HubSpot → Ayarlar → Integrations → Private Apps → app →
+Scopes → `crm.objects.owners.read` işaretle → Commit changes. Token değeri
+değişmez, redeploy gerekmez.
+
+**Yedek yol:** Scope açılamıyorsa `VALIDFOR_OWNER_MAP` env'i devreye girer —
+virgülle ayrılmış `anahtar:ownerId` çiftleri, anahtar e-posta ya da ad olabilir
+(ad karşılaştırması aksan/noktalama toleranslı). Owners API'si çalışıyorsa
+**önce o** kullanılır; env yalnız son çaredir. Yeni seat açıldığında bu listeyi
+elle güncellemeyi unutma.
+
 ### HubSpot arama limiti
 4 istek/saniye. Toplu döngülerde `await sleep(350)` freni var — kaldırma.
 `reply-sweep` bu yüzden kart başına tek tek sormaz: `batchReadAssociations` +
@@ -120,8 +144,24 @@ bir kod yolu eklersen krediler hızla tükenir.
 
 Bunlar kullanıcının açık kararları — "iyileştirme" niyetiyle değiştirme.
 
-**Demo kartı `Unassigned`'a düşer**, `Scheduled`'a değil. Taşıma kararı ekibin;
-toplantı gerçekleşince otomasyon `Meeting`'e alır. (`lib/gcal.ts`)
+**Demo kartının giriş stage'i daveti KİMİN gönderdiğine bağlı** (`lib/gcal.ts`,
+`isSelfSentInvite`). Ayırt edici, takvim etkinliğinin **organizatörü**:
+
+- **Müşteri kendi book etti** (Calendly; organizatör ortak hesap `demo@` /
+  `demo-requests@`, ya da Calendly imzası var) → kart **`Unassigned`**'a düşer,
+  sahipsizdir. `Scheduled`'a taşıma kararı ekibin.
+- **Davet bizden gitti** (ekip üyesi kendi kutusundan gönderdi, CC'de `demo@`)
+  → demo zaten sahiplenilmiştir → kart doğrudan **`Scheduled`**'a düşer ve
+  `deal_owner_validfor` + `hubspot_owner_id` **daveti gönderen kişi** olur.
+  Owner e-postadan çözülemezse alan boş kalır — yanlış kişiye atama yok.
+
+Her iki durumda da toplantı gerçekleşip transkript işlenince otomasyon kartı
+`Meeting`'e alır.
+
+**Elle gönderilen davette şirket adı:** Calendly form cevabını etkinlik
+açıklamasına yazdığı için kart gerçek adla açılır; elle gönderilen davette bu
+satır yoktur ve kart **domain adıyla** açılır (`pharmaxsolutions.com`). Davet
+açıklamasına tek satır `Company Name: PharmaX` yazmak bunu çözer.
 
 **`Follow-Up` = cevap yok, `In Progress` = cevap geldi.** (2026-09 kullanıcı
 kuralı, `lib/replies.ts`)
@@ -153,6 +193,20 @@ kaçırılan fon hiç görünmez. Daraltma önerisi gelirse bu gerekçeyi hatır
 alanlar: Sales kartında Likelihood / Demo Status / Validfor Priority, VC
 kartında Likelihood.
 
+**Deal owner iki alanda tutulur.** `deal_owner_validfor` (özel metin alanı,
+toplantıyı yapan kişinin adı) ve `hubspot_owner_id` (HubSpot'un standart
+alanı — kanban kartı, raporlar ve görev yönlendirmesi bunu kullanır).
+Otomasyon ikisini de yazar; owner eşleşmesi **e-posta** üzerinden yapılır
+(ad tekrar edebilir), bulunamazsa alan boş kalır — yanlış kişiye atama yok.
+Elle atanmış owner asla ezilmez. Ekip HubSpot kullanıcısı değilse
+`hubspot_owner_id` boş kalır, metin alanı yine dolar.
+
+**Deal owner = Deal Owner Validfor.** Karttaki `deal_owner_validfor` kim ise
+standart `hubspot_owner_id` alanı da o kişiye ayarlanır (demo yapan herkese seat
+alındı). Eşleşme önce e-posta, tutmazsa tam ad üzerinden yapılır; ad birden çok
+kullanıcıya denk geliyorsa alan **boş bırakılır** — yanlış kişiye atama yok.
+Elle atanmış owner asla ezilmez. Geriye dönük süpürme: `/api/backfill-owners`.
+
 **Serbest webmail'den şirket kaydı açılmaz** (`FREE_EMAIL_DOMAINS`,
 `lib/upsert.ts`). Liste Polonya ve Çin webmail'leriyle genişletildi; benzer
 bir sızıntı görülürse listeye eklenir.
@@ -167,6 +221,24 @@ cevaplarını aktardığı **takvim etkinliğinin açıklamasına** yazdığı i
 **webmail domain'i hiçbir zaman şirket kaydına yazılmaz**, yalnızca insanın
 beyan ettiği ad kullanılır. Şirket adı da yoksa aday yine oluşmaz.
 Calendly API'sine bağımlılık yok — bilgi takvimden geliyor.
+
+**Aynı ad transkript yolunda da kullanılır.** Toplantı gerçekleştikten sonra
+`processTranscript`, karşı tarafta şirket domain'i yoksa ve Claude transkriptten
+şirket adı çıkaramadıysa takvim etkinliğini toplantı saatine + katılımcıya göre
+bulup oradaki adı akışa geri verir (`findCalendarCompanyName`, `lib/gcal.ts`).
+Bu olmadan 30 dakikalık dolu bir demo bile `skipped: harici sirket/katilimci yok`
+ile CRM'e hiç girmiyordu (Abanoub/Julphar, Luis/LuceNox vakaları). Takvim
+okunamazsa eski davranışa düşer — pipeline kırılmaz.
+
+**Kart adı domain'e değil beyan edilen ada göre açılır.** Kurumsal e-postada da
+formdaki `Company Name` tercih edilir (kart `thermofisher.com` değil "Thermo
+Fisher Scientific" olur); domain yine şirket kaydının `domain` alanına yazılır,
+eşleştirme ve Apollo zenginleştirme oradan çalışmaya devam eder.
+
+**Şirket adı eşleştirmesi toleranslıdır.** Aynı firmadan iki kişi forma
+"Julphar" ve "Julphar Pharmaceutical" yazınca iki kart açılıyordu.
+`sameCompanyName` (`lib/upsert.ts`) kelime sınırındaki öneki aynı şirket sayar;
+"Global" ile "Terra Link Global" gibi son-kelime kesişmeleri eşleşmez.
 
 ---
 
@@ -183,6 +255,8 @@ curl -s "https://validfor.vercel.app/api/stage-sweep?dry=1"      -H "x-webhook-s
 curl -s "https://validfor.vercel.app/api/reply-sweep?dry=1"      -H "x-webhook-secret: SECRET"
 curl -s "https://validfor.vercel.app/api/calendar-demos?dry=1"   -H "x-webhook-secret: SECRET"
 curl -s "https://validfor.vercel.app/api/calendar-companies?dry=1" -H "x-webhook-secret: SECRET"
+
+curl -s "https://validfor.vercel.app/api/backfill-owners?dry=1"   -H "x-webhook-secret: SECRET"
 
 # Gerçek koşum — stage-sweep içinde calendar-sync + calendar-demos da çalışır
 curl -s -X POST "https://validfor.vercel.app/api/stage-sweep" -H "x-webhook-secret: SECRET"
@@ -202,6 +276,9 @@ deploy'un güncel olup olmadığını anlamanın hızlı yolu.
 - [x] **`vercel.json` cron'u** — repodaki dosya doğru (`0 7 * * *` /
       `30 7 * * *`). Geriye yalnız **deploy edilen** sürümü Vercel runtime
       loglarından doğrulamak kaldı.
+- [ ] **Owner backfill'i koş** — `backfill-owners?dry=1` ile önizle, sonra POST.
+      Yanıttaki `unresolved` altında kalan adlar HubSpot'ta kullanıcı olarak
+      yok ya da ad birden çok kişiye denk geliyor demektir; onlar elle atanır.
 - [ ] **`demo@validfor.com` takvimini doğrula** — `GOOGLE_CALENDAR_ID`'ye
       eklendi mi ve takvim `GOOGLE_SA_EMAIL` ile paylaşıldı mı?
       `calendar-demos?dry=1` ile kontrol et.

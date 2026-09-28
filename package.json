@@ -18,6 +18,7 @@
     "smoke:gcal": "tsx scripts/smoke-gcal.ts",
     "smoke:calendly": "tsx scripts/smoke-calendly.ts",
     "smoke:webhook": "tsx scripts/smoke-webhook.ts",
+    "smoke:owners": "tsx scripts/smoke-owners.ts",
     "setup-properties": "tsx scripts/setup-properties.ts",
     "test-fireflies": "tsx scripts/test-fireflies.ts",
     "test-pdf": "tsx scripts/test-pdf.ts",

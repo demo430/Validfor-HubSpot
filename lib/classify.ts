@@ -180,7 +180,10 @@ const SCHEMA = {
       description:
         "false ONLY if it is clear that NO external participant actually joined the meeting " +
         "(empty/silent recording, only the notetaker bot present, or only Validfor team members " +
-        "waiting/talking among themselves). true when externals spoke or when unclear.",
+        "waiting/talking among themselves). DEFINITIVE false: a Validfor participant says " +
+        "the meeting was a no-show (e.g. \"no show\", \"nobody joined\", \"kimse gelmedi\", " +
+        "\"gelmedi\", \"katilan olmadi\"), even if they kept talking among themselves. " +
+        "true when externals spoke or when unclear.",
     },
     investmentVerticals: {
       type: "array",

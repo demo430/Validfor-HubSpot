@@ -14,6 +14,9 @@ import {
   VC_STAGE,
   parseProcessedList,
   appendProcessed,
+  normCompanyName,
+  sameCompanyName,
+  internalOwnerEmailFromAttendees,
 } from "../lib/upsert.js";
 
 // Faz 5 duman testi: upsert'in saf yardimcilarini network'e cikmadan dogrular.
@@ -146,6 +149,53 @@ check("vc stage: Won -> dokunma", computeVcDealStage(VC_MANUAL.won) === null);
 check("vc stage: Lost -> dokunma", computeVcDealStage(VC_MANUAL.lost) === null);
 check("vc stage: Not Priority -> dokunma", computeVcDealStage(VC_MANUAL.notPriority) === null);
 check("vc stage: bilinmeyen -> dokunma", computeVcDealStage("some_custom_stage_xyz") === null);
+
+// --- sameCompanyName: mukerrer kart ureten ad farkliliklari ---
+// Ayni firmadan iki kisi Calendly formuna farkli ad yazinca iki kart aciliyordu.
+check("ad: birebir ayni", sameCompanyName("Julphar", "Julphar") === true);
+check("ad: buyuk/kucuk harf + bosluk", sameCompanyName("  julphar ", "Julphar") === true);
+check("ad: noktalama farki", sameCompanyName("Julphar, Inc.", "Julphar Inc") === true);
+check("ad: kelime sinirinda onek -> AYNI",
+  sameCompanyName("Julphar", "Julphar Pharmaceutical") === true);
+check("ad: onek degil -> FARKLI",
+  sameCompanyName("AZ Pharmaceutical", "Alembic Pharmaceuticals") === false);
+check("ad: ortak son kelime yetmez -> FARKLI",
+  sameCompanyName("Global", "Terra Link Global") === false);
+check("ad: kelime ortasinda kesisme -> FARKLI",
+  sameCompanyName("Julp", "Julphar") === false);
+check("ad: cok kisa ad -> FARKLI", sameCompanyName("IT", "ITART Consulting") === false);
+check("ad: bos -> FARKLI", sameCompanyName("", "Julphar") === false);
+check("normCompanyName", normCompanyName("  Julphar,  Inc. ") === "julphar inc");
+
+// --- internalOwnerEmailFromAttendees: HubSpot owner eslesmesi icin e-posta ---
+// Ortak hesaplar (demo@, connect@) GERCEK KISI DEGIL -> owner olamaz.
+const ownerT1: any = {
+  meeting_attendees: [
+    { email: "demo@validfor.com" },
+    { email: "musteri@acme.com" },
+    { email: "Omer.Cimen@validfor.com" },
+  ],
+  organizer_email: "demo@validfor.com",
+};
+check("owner e-posta: ortak hesap atlanir, gercek kisi bulunur",
+  internalOwnerEmailFromAttendees(ownerT1) === "omer.cimen@validfor.com");
+
+const ownerT2: any = {
+  meeting_attendees: [{ email: "demo@validfor.com" }, { email: "x@acme.com" }],
+  organizer_email: "connect@validfor.com",
+};
+check("owner e-posta: yalniz ortak hesap varsa BOS",
+  internalOwnerEmailFromAttendees(ownerT2) === "");
+
+const ownerT3: any = {
+  meeting_attendees: [{ email: "x@acme.com" }],
+  organizer_email: "Beyzanur.Saglam@validfor.com",
+};
+check("owner e-posta: organizatorden turer + kucuk harf",
+  internalOwnerEmailFromAttendees(ownerT3) === "beyzanur.saglam@validfor.com");
+
+check("owner e-posta: hic katilimci yoksa BOS",
+  internalOwnerEmailFromAttendees({} as any) === "");
 
 console.log(
   fail === 0

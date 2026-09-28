@@ -56,6 +56,38 @@ export function isCompanyDomain(domain: string): boolean {
   return Boolean(d) && !FREE_EMAIL_DOMAINS.has(d) && !isNonCompanyDomain(d);
 }
 
+/**
+ * Sirket adlarini normalize eder (SAF): kucuk harf, noktalama -> bosluk,
+ * coklu bosluk tek bosluga. "Julphar Pharmaceutical, Inc." -> "julphar pharmaceutical inc"
+ */
+export function normCompanyName(name: string): string {
+  return String(name || "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+/**
+ * Iki ad AYNI sirketi mi gosteriyor? (SAF)
+ *
+ * Birebir esitlik yetmiyor: ayni firmadan iki kisi Calendly formuna "Julphar" ve
+ * "Julphar Pharmaceutical" yazinca iki ayri kart aciliyordu. Kural: adlardan biri
+ * digerinin KELIME SINIRINDA oneki ise ayni sayilir.
+ *
+ * Onek (icerme degil) secildi: "global" ile "terra link global" eslesmemeli.
+ * Kisa ad esigi (>=4 karakter): "it" ile "itart consulting" eslesmemeli.
+ */
+export function sameCompanyName(a: string, b: string): boolean {
+  const x = normCompanyName(a);
+  const y = normCompanyName(b);
+  if (!x || !y) return false;
+  if (x === y) return true;
+  const [short, long] = x.length <= y.length ? [x, y] : [y, x];
+  if (short.length < 4) return false;
+  return long.startsWith(short + " ");
+}
+
 // --- Saf yardimcilar (network yok; testlerde dogrulanabilir) ---
 export function emailDomain(email: string): string {
   const at = String(email || "").lastIndexOf("@");
@@ -118,6 +150,21 @@ export function internalOwnerFromAttendees(t: Transcript): string {
   }
   return "";
 }
+// internalOwnerFromAttendees'in e-posta doneni: HubSpot owner eslesmesi ADA
+// degil E-POSTAYA gore yapilmali (adlar tekrar edebilir, yazim degisebilir).
+export function internalOwnerEmailFromAttendees(t: Transcript): string {
+  const candidates: string[] = [
+    ...(t.meeting_attendees || []).map((a) => (a.email || "").toLowerCase().trim()),
+    (t.organizer_email || "").toLowerCase().trim(),
+    (t.host_email || "").toLowerCase().trim(),
+  ];
+  for (const email of candidates) {
+    if (!email || !isInternalEmail(email) || isSharedAccountEmail(email)) continue;
+    return email;
+  }
+  return "";
+}
+
 function escapeHtml(s: string): string {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
@@ -366,12 +413,13 @@ export async function upsertMeeting(
     if (companyId) companyCountry = String(c.properties?.country || "");
     if (!companyId) {
       // EQ buyuk/kucuk harf duyarli: "freshworks" vs "Freshworks" mukerrer sirket
-      // yaratmasin diye normalize edilmis tam-eslesme fallback'i (deal aramasiyla tutarli).
-      const want = x.companyName.trim().toLowerCase();
+      // yaratmasin diye CONTAINS_TOKEN fallback'i. Karsilastirma sameCompanyName
+      // ile yapilir: ayni firmadan iki kisi "Julphar" ve "Julphar Pharmaceutical"
+      // yazinca ikinci toplanti YENI kart aciyordu (mohamed barakat vakasi).
       const alt = await hs.searchByProperty(
         "company", "name", "CONTAINS_TOKEN", x.companyName, ["name", "country"],
       );
-      if (alt && String(alt.properties?.name || "").trim().toLowerCase() === want) {
+      if (alt && sameCompanyName(String(alt.properties?.name || ""), x.companyName)) {
         companyId = alt.id;
         companyCountry = String(alt.properties?.country || "");
       }
@@ -509,7 +557,7 @@ export async function upsertMeeting(
   let vcStageJustSet = false; // yeni VC deal'i: stage create'te yazildi, adim 6 dokunmasin
   const cur: Record<string, string> = {}; // yalniz-bossa-yaz alanlarinin mevcut degerleri
   const ENRICH_PROPS = [
-    "deal_owner_validfor", "dealtype", "amount", "sector", "icp",
+    "deal_owner_validfor", "hubspot_owner_id", "dealtype", "amount", "sector", "icp",
     "headcount", "solution_which_competitor_they_use",
   ];
   if (dealId) {
@@ -642,6 +690,17 @@ export async function upsertMeeting(
     patch.dealname = x.companyName;
   }
   if (ownerName && !cur.deal_owner_validfor) patch.deal_owner_validfor = ownerName;
+  // Standart "Deal owner" (hubspot_owner_id): kanban karti, raporlar ve gorev
+  // yonlendirmesi bu alani kullanir. Ekip HubSpot kullanicisi olduktan sonra
+  // doldurulabilir; owner bulunamazsa alan BOS kalir (yanlis kisiye atama yok).
+  // Bos-alan kurali: elle atanmis owner ASLA ezilmez.
+  if (!cur.hubspot_owner_id) {
+    const ownerId = await hs.resolveOwnerId({
+      email: internalOwnerEmailFromAttendees(t),
+      name: ownerName,
+    });
+    if (ownerId) patch.hubspot_owner_id = ownerId;
+  }
   // Sales kart alanlari YALNIZ Sales Pipeline deal'ina yazilir (VC kartinda bu
   // alanlar yok). Kartin SON 3 alani (Likelihood / Demo Status / Validfor
   // Priority) bilincli MANUEL — otomasyon hicbirine yazmaz (insan degerlendirmesi).

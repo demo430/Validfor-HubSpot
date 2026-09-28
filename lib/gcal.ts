@@ -20,8 +20,11 @@ import { enrichOrganization } from "./apollo.js";
 import {
   emailDomain,
   isInternalEmail,
+  isSharedAccountEmail,
+  ownerNameFromEmail,
   FREE_EMAIL_DOMAINS,
   isCompanyDomain,
+  sameCompanyName,
   VC_PIPELINE_ID,
   VC_STAGE,
   PIPELINE_ID,
@@ -44,6 +47,15 @@ export interface CalendarEvent {
    * Serbest webmail'li (gmail/icloud) davetlilerde sirketi bilmenin tek yolu budur.
    */
   companyName: string;
+  /**
+   * Etkinligi olusturan kisinin e-postasi (kucuk harf).
+   *
+   * Calendly rezervasyonlarinda bu ORTAK hesaptir (demo@validfor.com);
+   * ekipten biri kendi kutusundan davet gonderdiginde ise O KISIDIR. Demo
+   * kartinin hangi stage'e dusecegi ve owner'i bu ayrima gore belirlenir
+   * (bkz. isSelfSentInvite).
+   */
+  organizer: string;
 }
 
 // Etkinlik aciklamasindan "Company Name: X" satirini cikarir (SAF).
@@ -85,6 +97,7 @@ export function normalizeEvents(items: any[]): CalendarEvent[] {
       names: [...names],
       isCalendly: hay.includes("calendly"),
       companyName: extractCompanyNameFromDescription(String(it.description || "")),
+      organizer: org,
     });
   }
   return out;
@@ -611,11 +624,41 @@ export interface CalendarDemoResult {
   items: string[];
 }
 
+/**
+ * Davet EKIPTEN BIRI tarafindan mi gonderilmis? (SAF)
+ *
+ * Kullanici kurali: kendi kutumuzdan davet atip CC'ye demo@ koydugumuzda o
+ * demo zaten SAHIPLENILMISTIR — kart dogrudan "Scheduled"a duser ve owner'i
+ * daveti gonderen kisidir. Musterinin kendi book ettigi Calendly rezervasyonu
+ * ise sahipsizdir; o "Unassigned"da kalir, tasima karari ekibin.
+ *
+ * Ayirt edici: etkinligin ORGANIZATORU. Calendly rezervasyonlarinda bu ortak
+ * hesaptir (demo@ / demo-requests@); elle gonderilen davette gercek kisidir.
+ * Calendly imzasi tasiyan etkinlik her halukarda rezervasyon sayilir.
+ */
+export function isSelfSentInvite(ev: CalendarEvent): boolean {
+  if (ev.isCalendly) return false;
+  const org = String(ev.organizer || "").toLowerCase().trim();
+  if (!org || !isInternalEmail(org)) return false;
+  return !isSharedAccountEmail(org); // demo@/connect@ vb. gercek kisi degildir
+}
+
+export interface CalendarDemoCandidate {
+  domain: string;
+  companyName: string;
+  title: string;
+  startMs: number;
+  /** Daveti gonderen ekip uyesi (varsa) — kart owner'i olur. */
+  organizer: string;
+  /** true ise kart "Scheduled"a duser, false ise "Unassigned"a. */
+  selfSent: boolean;
+}
+
 export function extractCalendarDemoCandidates(
   events: CalendarEvent[],
   nowMs: number,
-): Array<{ domain: string; companyName: string; title: string; startMs: number }> {
-  type Cand = { domain: string; companyName: string; title: string; startMs: number };
+): CalendarDemoCandidate[] {
+  type Cand = CalendarDemoCandidate;
   const byKey = new Map<string, Cand>();
   const keep = (key: string, cand: Cand): void => {
     const cur = byKey.get(key);
@@ -634,7 +677,17 @@ export function extractCalendarDemoCandidates(
       const domain = emailDomain(email);
       if (!isCompanyDomain(domain)) continue;
       hasCompanyDomain = true;
-      keep(domain, { domain, companyName: "", title: ev.title, startMs: ev.startMs });
+      // companyName domain'li adayda da tasinir: kart adi olarak BEYAN EDILEN
+      // ad tercih edilir (kart "thermofisher.com" degil "Thermo Fisher
+      // Scientific" olur), domain ise sirket kaydinda kimlik olarak kalir.
+      keep(domain, {
+        domain,
+        companyName: ev.companyName,
+        title: ev.title,
+        startMs: ev.startMs,
+        organizer: ev.organizer,
+        selfSent: isSelfSentInvite(ev),
+      });
     }
     // Serbest webmail'li rezervasyon (gmail/icloud): sirket domain'i YOK ama
     // Calendly formunda sirket adi var -> kart AD ile acilir. Webmail domain'i
@@ -646,10 +699,89 @@ export function extractCalendarDemoCandidates(
         companyName: ev.companyName,
         title: ev.title,
         startMs: ev.startMs,
+        organizer: ev.organizer,
+        selfSent: isSelfSentInvite(ev),
       });
     }
   }
   return [...byKey.values()];
+}
+
+/**
+ * Sirket kaydini bulur, yoksa acar. Oncelik: DOMAIN (sabit kimlik) -> AD.
+ *
+ * Ad aramasinda birebir esitlik yetmiyor: ayni firmadan iki kisi Calendly
+ * formuna "Julphar" ve "Julphar Pharmaceutical" yazinca iki ayri sirket
+ * aciliyordu. EQ tutmazsa CONTAINS_TOKEN ile aranip sameCompanyName ile
+ * dogrulanir (upsert.ts'teki ayni desen, daha toleransli son kontrolle).
+ *
+ * webmail domain'i ASLA sirket kaydina yazilmaz — cagiran taraf domain'i
+ * yalnizca kurumsal oldugunda gecirir.
+ */
+export async function findOrCreateCompany(domain: string, name: string): Promise<string> {
+  if (domain) {
+    const byDomain = await hs.searchByProperty("company", "domain", "EQ", domain, ["name"]);
+    if (byDomain?.id) return String(byDomain.id);
+  }
+  if (name) {
+    const byName = await hs.searchByProperty("company", "name", "EQ", name, ["name"]);
+    if (byName?.id) return String(byName.id);
+    // EQ buyuk/kucuk harf duyarli; ayrica "Julphar" != "Julphar Pharmaceutical"
+    const alt = await hs.searchByProperty("company", "name", "CONTAINS_TOKEN", name, ["name"]);
+    if (alt?.id && sameCompanyName(String(alt.properties?.name || ""), name)) {
+      return String(alt.id);
+    }
+  }
+  const props: Record<string, string> = { name: name || domain };
+  if (domain) props.domain = domain;
+  const created = await hs.createObject("company", props);
+  return String(created.id);
+}
+
+/**
+ * Bir toplantinin takvim etkinligindeki BEYAN EDILEN sirket adini bulur.
+ *
+ * Neden gerekli: kisisel e-postayla (gmail/icloud/hotmail) alinan demolarda
+ * transkript yolu sirket kimligi bulamiyor ve kayit ATLANIYOR — 30 dakikalik
+ * dolu bir demo bile CRM'e girmiyor (Abanoub/Julphar, Luis/LuceNox vakalari).
+ * Bilgi aslinda elimizde: Calendly form cevaplarini takvim etkinliginin
+ * aciklamasina yaziyor. Burada o adi toplanti saatine ve katilimciya gore
+ * eslestirip transkript akisina geri veriyoruz.
+ *
+ * Hicbir hata pipeline'i dusurmez — bulunamazsa bos string doner.
+ */
+export async function findCalendarCompanyName(
+  attendeeEmails: string[],
+  meetingStartMs: number,
+): Promise<string> {
+  const ids = calendarIds();
+  const wanted = new Set(
+    attendeeEmails.map((e) => String(e || "").toLowerCase().trim()).filter(Boolean),
+  );
+  if (!ids.length || !wanted.size || !Number.isFinite(meetingStartMs)) return "";
+
+  // Pencere: toplanti gecmisteyse pastDays, gelecekteyse days tarafi genisler.
+  const diffDays = Math.ceil(Math.abs(Date.now() - meetingStartMs) / 86_400_000) + 1;
+  const span = Math.min(Math.max(diffDays, 1), 90);
+  const past = meetingStartMs <= Date.now() ? span : 1;
+  const ahead = meetingStartMs > Date.now() ? span : 1;
+
+  const TOLERANCE_MS = 2 * 60 * 60 * 1000; // takvim ve Fireflies saatleri birebir tutmayabilir
+  for (const id of ids) {
+    let events: CalendarEvent[] = [];
+    try {
+      events = await fetchUpcomingEvents(id, ahead, past);
+    } catch {
+      continue; // bir takvim okunamazsa digerlerine devam
+    }
+    for (const ev of events) {
+      if (!ev.companyName) continue;
+      if (Math.abs(ev.startMs - meetingStartMs) > TOLERANCE_MS) continue;
+      if (!ev.attendees.some((e) => wanted.has(e))) continue;
+      return ev.companyName;
+    }
+  }
+  return "";
 }
 
 export async function syncCalendarDemoDeals(
@@ -691,39 +823,52 @@ export async function syncCalendarDemoDeals(
   const sleep = (ms: number): Promise<void> => new Promise((res) => setTimeout(res, ms));
   for (const cand of candidates) {
     await sleep(350); // HubSpot arama limiti (4/sn) freni
-    // Domain varsa onunla, yoksa (serbest webmail) Calendly formundaki sirket
-    // adiyla calisilir. Kart adi da bu etiket olur.
-    const label = cand.domain || cand.companyName;
+    // Kart adi: insanin BEYAN ETTIGI sirket adi domain'e TERCIH EDILIR.
+    // Kurumsal e-postada kart eskiden "thermofisher.com" gibi aciliyor ve ekip
+    // sirket adiyla arayinca bulamiyordu. Domain kimlik olarak sirket kaydinda
+    // saklanmaya devam eder (eslestirme ve Apollo zenginlestirme oradan calisir).
+    const label = cand.companyName || cand.domain;
     try {
-      if (await findExistingDealForDomain(label, PIPELINE_ID)) {
+      // Mukerrer kontrolu HER IKI kimlikle: domain sabit kimliktir, ad ise
+      // kartin gorunen adi. Biri tutmazsa digeri yakalar.
+      const already =
+        (cand.domain && (await findExistingDealForDomain(cand.domain, PIPELINE_ID))) ||
+        (cand.companyName && (await findExistingDealForDomain(cand.companyName, PIPELINE_ID)));
+      if (already) {
         r.existing++;
         continue;
       }
       const when = new Date(cand.startMs).toISOString().slice(0, 16).replace("T", " ");
+      // Kullanici kurali (iki ayri durum):
+      //  - Musteri KENDI book etti (Calendly) -> sahipsiz -> "Unassigned";
+      //    Scheduled'a tasima karari ekibin.
+      //  - Davet BIZDEN gitti (ekip uyesi kendi kutusundan, CC'de demo@) ->
+      //    demo zaten sahiplenilmis -> dogrudan "Scheduled" + owner = daveti
+      //    gonderen kisi.
+      const ownerName = cand.selfSent ? ownerNameFromEmail(cand.organizer) : "";
+      const stageLabel = cand.selfSent ? "Scheduled" : "Unassigned";
       if (!dry) {
-        let companyId = "";
-        // Domain'siz adayda sirket ADIYLA aranir (mukerrer kayit acilmasin).
-        const comp = cand.domain
-          ? await hs.searchByProperty("company", "domain", "EQ", cand.domain, ["name"])
-          : await hs.searchByProperty("company", "name", "EQ", cand.companyName, ["name"]);
-        companyId = comp?.id || "";
-        if (!companyId) {
-          const props: Record<string, string> = { name: label };
-          if (cand.domain) props.domain = cand.domain; // webmail domain'i ASLA yazilmaz
-          const created = await hs.createObject("company", props);
-          companyId = String(created.id);
-        }
-        // Kullanici kurali: book edilen demo "Unassigned"a duser; Scheduled'a
-        // tasima karari EKIBIN. Toplanti gerceklesince otomasyon Meeting'e alir.
-        const deal = await hs.createObject("deal", {
+        const companyId = await findOrCreateCompany(cand.domain, label);
+        const props: Record<string, unknown> = {
           dealname: label,
           pipeline: PIPELINE_ID,
-          dealstage: STAGE.unassigned,
-        });
+          dealstage: cand.selfSent ? STAGE.scheduled : STAGE.unassigned,
+        };
+        if (ownerName) {
+          props.deal_owner_validfor = ownerName;
+          // Standart Deal owner: e-postadan cozulur. Cozulemezse alan BOS
+          // kalir — yanlis kisiye atama yok (owner kurali degismedi).
+          const ownerId = await hs.resolveOwnerId({ email: cand.organizer, name: ownerName });
+          if (ownerId) props.hubspot_owner_id = ownerId;
+        }
+        const deal = await hs.createObject("deal", props);
         if (companyId) await hs.associateDefault("deal", String(deal.id), "company", companyId);
       }
       r.created++;
-      note(`${label}: "${cand.title || "(bassiz)"}" @ ${when} UTC -> Sales deal (Unassigned)`);
+      note(
+        `${label}: "${cand.title || "(bassiz)"}" @ ${when} UTC -> Sales deal (${stageLabel})` +
+          (ownerName ? ` — owner: ${ownerName}` : ""),
+      );
     } catch (e: any) {
       r.errors++;
       note(`HATA ${label}: ${String(e?.message || e).slice(0, 160)}`);
