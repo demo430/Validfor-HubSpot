@@ -115,6 +115,16 @@ const TYPE_PLURAL: Record<string, string> = {
   notes: "notes",
   meeting: "meetings",
   meetings: "meetings",
+  // DIKKAT: burada OLMAYAN tip oldugu gibi gecer ve URL sessizce 404 olur.
+  // "email" eksikken /crm/v4/associations/deals/email/... isteniyordu ve
+  // batch yardimcilari hatayi yutup BOS liste donduruyordu -> reply-sweep
+  // her karti "cevap yok" sayiyordu. Yeni tip eklerken bu haritayi guncelle.
+  email: "emails",
+  emails: "emails",
+  call: "calls",
+  calls: "calls",
+  task: "tasks",
+  tasks: "tasks",
 };
 export const plural = (t: string): string => TYPE_PLURAL[t] || t;
 
