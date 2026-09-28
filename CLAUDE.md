@@ -113,6 +113,25 @@ elle güncellemeyi unutma.
 
 ### HubSpot arama limiti
 4 istek/saniye. Toplu döngülerde `await sleep(350)` freni var — kaldırma.
+`reply-sweep` bu yüzden kart başına tek tek sormaz: `batchReadAssociations` +
+`batchReadObjects` ile 100'lük gruplar okur (~12 istek, 60 sn sınırına sığar).
+
+### `hs_email_direction` yanıltıcıdır — cevap tespitinde KULLANMA
+BCC/forward ile HubSpot'a loglanan **giden** mailler de
+`hs_email_direction: INCOMING_EMAIL` olarak düşüyor. Portalda doğrulanan kayıt:
+
+```
+konu      "Following up on our last conversation – Validfor"
+direction  INCOMING_EMAIL
+from       elif.yesil@validfor.com      <- BIZIM giden mailimiz
+```
+
+Tek güvenilir test **gönderen domaini**: `isInternalEmail(from)` false ise
+müşteri yanıtı. Ayrıca otomatik yanıtlar (`Automatic reply:`, `Out of Office`)
+ve takvim bildirimleri (`Invitation:`, `Accepted:`, `Declined:`) da
+`INCOMING_EMAIL` olarak düşüyor; bunlar `AUTO_SUBJECT_RE` ile atılır.
+Kalıp `":"` ile bitiyorsa ardına `\b` koyma — `":"` ve boşluk ikisi de
+kelime-dışı olduğu için orada sınır yoktur (`auto:` ayrı dal).
 
 ### Apollo kredi koruması
 Zenginleştirilen şirkete `apollo_enriched_at` damgası basılır; damgalı kayıt
@@ -143,6 +162,24 @@ Her iki durumda da toplantı gerçekleşip transkript işlenince otomasyon kart�
 açıklamasına yazdığı için kart gerçek adla açılır; elle gönderilen davette bu
 satır yoktur ve kart **domain adıyla** açılır (`pharmaxsolutions.com`). Davet
 açıklamasına tek satır `Company Name: PharmaX` yazmak bunu çözer.
+
+**`Follow-Up` = cevap yok, `In Progress` = cevap geldi.** (2026-09 kullanıcı
+kuralı, `lib/replies.ts`)
+
+| Stage | Anlam | Nasıl gelinir |
+|---|---|---|
+| `Meeting` (`5732504815`) | demo gerçekleşti, taze | toplantı işlenince (AUTO) |
+| `Follow-Up` (`closedwon`) | demo oldu, **cevap henüz yok** | Meeting'de 7 gün sessizlik ya da ikinci toplantı (AUTO) |
+| `In Progress` (`6147225815`) | **cevap geldi**, takip gerekiyor | demo sonrası müşteri yanıtı (AUTO) |
+
+Cevabın **olumlu mu olumsuz mu** olduğu ayırt edilmez — ikisi de `In Progress`.
+Karar insanın. `In Progress` pipeline'da görsel olarak Meeting ile Follow-Up
+**arasında** duruyor ama anlamsal olarak Follow-Up'tan **sonra** gelir; bu
+yüzden yeni bir toplantı `In Progress`'teki kartı **geri götürmez**
+(`STAGE_ORDER` içinde 4).
+
+`reply-sweep` **`stale-sweep`'ten ÖNCE** koşar — cevap gelmiş bir kart "cevap
+yok" gerekçesiyle Follow-Up'a taşınmasın.
 
 **Başlığında `demo` geçen etkinlik asla VC adayı olamaz.** "X Intro & Demo"
 gibi müşteri tanışmaları `intro` sinyaliyle VC pipeline'ına sızıyordu.
@@ -215,6 +252,7 @@ curl -s https://validfor.vercel.app/
 
 # Önizleme (SECRET = FIREFLIES_WEBHOOK_SECRET)
 curl -s "https://validfor.vercel.app/api/stage-sweep?dry=1"      -H "x-webhook-secret: SECRET"
+curl -s "https://validfor.vercel.app/api/reply-sweep?dry=1"      -H "x-webhook-secret: SECRET"
 curl -s "https://validfor.vercel.app/api/calendar-demos?dry=1"   -H "x-webhook-secret: SECRET"
 curl -s "https://validfor.vercel.app/api/calendar-companies?dry=1" -H "x-webhook-secret: SECRET"
 
