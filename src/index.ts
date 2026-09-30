@@ -8,7 +8,11 @@ import { sweepStaleDeals, sweepEntryMismatch, DEFAULT_STALE_DAYS } from "../lib/
 import { syncScheduledVcDeals, syncCalendarCompanies, syncCalendarDemoDeals } from "../lib/gcal.js";
 import { syncCalendlyDemoDeals } from "../lib/calendly.js";
 import { sweepRepliedDeals } from "../lib/replies.js";
-import { backfillCompanyTypes } from "../lib/company-type.js";
+import {
+  backfillCompanyTypes,
+  normalizeCompanyTypes,
+  convertCompanyTypeToDropdown,
+} from "../lib/company-type.js";
 
 // Validfor Relay — Fireflies toplantilarini Claude (Sonnet 5) uzerinden HubSpot'a
 // tasiyan sade Hono uygulamasi. Webhook her seyi SENKRON yapar:
@@ -429,7 +433,25 @@ async function runCompanyType(c: any): Promise<Response> {
   const dry = ["1", "true"].includes(String(c.req.query("dry") || "").toLowerCase());
   const maxRaw = Number(c.req.query("max"));
   const max = isNaN(maxRaw) ? undefined : maxRaw;
+  // ?mode=normalize : yazim kaymalarini kanonik hale getirir (bos alanlara
+  //                    dokunmaz). ?after=... ile kaldigi yerden devam eder.
+  // ?mode=dropdown  : alani serbest metinden dropdown'a cevirir. ONCE
+  //                    normalize kosulmali (bkz. lib/company-type.ts notu).
+  const mode = String(c.req.query("mode") || "").toLowerCase();
   try {
+    if (mode === "normalize") {
+      const n = await normalizeCompanyTypes({ dry, after: c.req.query("after") });
+      console.log(
+        `[company-type/normalize] dry=${dry} scanned=${n.scanned} ` +
+          `drifted=${n.drifted} written=${n.written} errors=${n.errors} done=${n.done}`,
+      );
+      return c.json({ ok: true, dry, mode, ...n }, 200);
+    }
+    if (mode === "dropdown") {
+      const d = await convertCompanyTypeToDropdown({ dry });
+      console.log(`[company-type/dropdown] dry=${dry} ok=${d.ok} ${d.error || ""}`);
+      return c.json({ dry, mode, ...d }, 200);
+    }
     const r = await backfillCompanyTypes({ dry, max });
     console.log(
       `[company-type] dry=${dry} scanned=${r.scanned} vc=${r.vc} ` +

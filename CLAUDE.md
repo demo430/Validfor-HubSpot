@@ -261,12 +261,12 @@ Elle atanmış owner asla ezilmez. Geriye dönük süpürme: `/api/backfill-owne
 harf kullanıyor, o düzen korunur. Karar sırası:
 
 1. `industry` kesin fon (`VENTURE_CAPITAL_PRIVATE_EQUITY`, `INVESTMENT_MANAGEMENT`,
-   `INVESTMENT_BANKING`, `CAPITAL_MARKETS`) → **vc**
+   `INVESTMENT_BANKING`, `CAPITAL_MARKETS`, `FUND_RAISING`) → **vc**
 2. `industry` kesin müşteri (ilaç, tıbbi cihaz, biyoteknoloji, araştırma,
    hastane…) → **customer** — *ad kuralını ezer*
 3. Adında VC terimi (`vc` · `venture(s)` · `capital` · `equity` · `partner(s)` ·
-   `fund(s)` · `funding` · `invest*` · `angel(s)` · `asset management` ·
-   `family office`) → **vc**
+   `fund(s)` · `funding` · `invest*` · `angel(s)` · `portfolio` / `portföy` /
+   `portfoy` · `asset management` · `family office`) → **vc**
 4. Aksi halde → **customer**
 
 `industry`'nin addan önce gelmesi şart: "Partners" hem fonlarda hem hizmet
@@ -283,8 +283,32 @@ ad kuralında da yok ve bu portaldaki Türk holdingleri müşteri
 `vc` kelime sınırıyla aranır (`\bvc\b`) — yoksa "Service", "Advance" gibi
 kelimeler fon sayılır.
 
+**`FUND_RAISING` temiz bir sinyal değil.** Kullanıcı isteğiyle listede, ama
+bağış toplayan hayır kurumları da bu sektöre düşüyor — portalda
+"Jewish Federation of Greater MetroWest NJ". O kayıt elle `customer`'a
+sabitlendi; dolu alan ezilmediği için orada kalır. Benzerini görürsen aynısını
+yap.
+
 **Dolu `company_type` asla ezilmez** (boş-alan kuralı). Uç: `/api/company-type`;
-`done:false` dönerse tekrar çağır.
+`done:false` dönerse tekrar çağır. Üç mod:
+
+| Mod | Ne yapar |
+|---|---|
+| (varsayılan) | **boş** alanları doldurur |
+| `?mode=normalize` | yazım kaymalarını kanonik hâle getirir (`VC` → `vc`); boş alana dokunmaz. `after` döndürürse `?mode=normalize&after=...` ile devam et |
+| `?mode=dropdown` | alanı serbest metinden dropdown'a (enumeration) çevirir |
+
+**Alan serbest metin olduğu için yazım kayıyor.** Portalda büyük harf `VC`
+değeri bulundu (Xss Capital, Cedar Portfolio). HubSpot'un SQL toplaması
+büyük/küçük harfi birleştirdiği için bu **raporlarda görünmüyor** —
+`GROUP BY company_type` sadece `vc` / `customer` gösterir. Tespit için
+`?mode=normalize&dry=1` koş.
+
+**Dropdown'a çevirmeden ÖNCE normalize koş.** Enum'a geçince yalnız tanımlı
+seçenekler geçerli olur; option `value`'ları mevcut küçük harf veriyle birebir
+aynı (`vc`, `customer`). HubSpot bir property'nin `type` alanını sonradan
+değiştirmeye her zaman izin vermez — reddederse hata olduğu gibi döner ve alan
+arayüzden çevrilir (Ayarlar → Properties → Company Type → field type).
 
 **Süpürücü iki fazlıdır: önce TÜM sayfalar okunur, sonra yazılır.** Yazarken
 okumak çalışmaz — arama indeksi birkaç saniye geride olduğu için yeni yazılan

@@ -26,6 +26,12 @@ export const VC_INDUSTRIES = new Set([
   "INVESTMENT_MANAGEMENT",
   "INVESTMENT_BANKING",
   "CAPITAL_MARKETS",
+  // FUND_RAISING kullanici istegiyle eklendi (hizlandirici/fon kayitlari
+  // burada). DIKKAT: bu sektor TEMIZ bir sinyal DEGIL — bagis toplayan hayir
+  // kurumlari da buraya dusuyor (portalda "Jewish Federation of Greater
+  // MetroWest NJ"). O kayit elle customer'a sabitlendi; dolu alan asla
+  // ezilmedigi icin orada kalir. Benzer bir kayit gorursen aynisini yap.
+  "FUND_RAISING",
 ]);
 
 /** Sektoru kesin MUSTERI olanlar -> adinda "Partners" gecse bile customer. */
@@ -53,8 +59,11 @@ export const CUSTOMER_INDUSTRIES = new Set([
 // yok ve bu portaldaki Turk holdingleri musteri (orn. "Sayaholding / Aktif
 // Portfoy" Sales kartidir). Gercek yatirim holdingleri industry alanindan
 // (INVESTMENT_MANAGEMENT) yakalanir.
+// "portfolio" / "portfoy" / "portföy" (TR) kullanici istegiyle eklendi:
+// portfoy yonetim sirketleri yatirimci tarafi (orn. "Aktif Portföy",
+// "Quantum Portfolio Management"). Turkce "ö" ve ASCII "o" ikisi de kabul.
 export const VC_NAME_RE =
-  /\b(?:vc|ventures?|capital|equity|partners?|funds?|funding|invest\w*|angels?|asset management|family office)\b/i;
+  /\b(?:vc|ventures?|capital|equity|partners?|funds?|funding|invest\w*|angels?|portf(?:olio|[oö]y)|asset management|family office)\b/i;
 
 export type CompanyType = typeof TYPE_VC | typeof TYPE_CUSTOMER;
 
@@ -190,4 +199,142 @@ export async function backfillCompanyTypes(
     }
   }
   return r;
+}
+
+// --- Yazim normalizasyonu ---
+// Alan SERBEST METIN oldugu icin yazim kaymasi olabiliyor: portalda buyuk
+// harf "VC" degeri bulundu (Xss Capital, Cedar Portfolio). HubSpot'un SQL
+// toplamasi buyuk/kucuk harfi birlestirdigi icin bu raporlarda GORUNMUYOR.
+// Dropdown'a cevirmeden ONCE bu kaymalar temizlenmeli: enum'a gecince yalniz
+// tanimli secenekler gecerli olur.
+const ALLOWED = new Set<string>([TYPE_VC, TYPE_CUSTOMER]);
+
+/** SAF: serbest metin degeri kanonik hale getirir; cozulemezse null. */
+export function normalizeTypeValue(raw: string | null | undefined): CompanyType | null {
+  const v = String(raw || "")
+    .trim()
+    .toLowerCase();
+  if (!v) return null; // bos -> normalize isi degil, doldurucunun isi
+  if (v === TYPE_VC) return TYPE_VC;
+  if (v === TYPE_CUSTOMER) return TYPE_CUSTOMER;
+  // "VC ", "Customer", "vC" gibi kaymalar yukarida cozulur. Taninmayan bir
+  // degerse (orn. "prospect") null doner -> cagiran yeniden siniflandirir.
+  return null;
+}
+
+export interface NormalizeResult {
+  scanned: number;
+  drifted: number; // kanonik olmayan deger bulundu
+  written: number; // dry'da: yazilacak
+  errors: number;
+  done: boolean;
+  /** Sonraki cagriya verilecek imlec; done=true ise bos. */
+  after: string;
+  samples: string[];
+}
+
+/**
+ * TUM sirketleri tarar ve company_type degerini kanonik hale getirir.
+ * Bos olanlara DOKUNMAZ (onlar backfillCompanyTypes'in isi).
+ * Butce dolarsa done:false + after doner; ucu ?after=... ile tekrar cagir.
+ */
+export async function normalizeCompanyTypes(
+  opts: { dry?: boolean; budgetMs?: number; after?: string } = {},
+): Promise<NormalizeResult> {
+  if (!process.env.HUBSPOT_TOKEN) throw new Error("HUBSPOT_TOKEN tanimli degil");
+  const dry = !!opts.dry;
+  const budgetMs = Math.min(Math.max(opts.budgetMs ?? 40000, 5000), 300000);
+  const started = Date.now();
+  const r: NormalizeResult = {
+    scanned: 0,
+    drifted: 0,
+    written: 0,
+    errors: 0,
+    done: true,
+    after: "",
+    samples: [],
+  };
+  let after = String(opts.after || "");
+  const fixes: { id: string; properties: Record<string, string> }[] = [];
+
+  // Liste ucu kullanilir (arama DEGIL): filtre olmadigi icin yazma kumeyi
+  // degistirmez, imlec guvenlidir.
+  for (let page = 0; page < 500; page++) {
+    if (Date.now() - started > budgetMs) {
+      r.done = false;
+      r.after = after;
+      break;
+    }
+    const qs =
+      `?limit=100&properties=name,industry,${PROP}` +
+      (after ? `&after=${encodeURIComponent(after)}` : "");
+    const json = await hs.hsFetch<{ results?: any[]; paging?: any }>(
+      `/crm/v3/objects/companies${qs}`,
+    );
+    for (const c of json.results || []) {
+      const p = c.properties || {};
+      const raw = p[PROP];
+      r.scanned++;
+      if (!raw || String(raw).trim() === "") continue; // bos -> atla
+      if (ALLOWED.has(String(raw))) continue; // zaten kanonik
+      r.drifted++;
+      const fixed = normalizeTypeValue(raw) ?? classifyCompanyType(p.name, p.industry);
+      if (r.samples.length < 50) {
+        r.samples.push(`${String(p.name || c.id).slice(0, 40)}: "${raw}" -> ${fixed}`);
+      }
+      fixes.push({ id: String(c.id), properties: { [PROP]: fixed } });
+    }
+    after = json.paging?.next?.after || "";
+    if (!after) break;
+  }
+
+  if (!dry) {
+    for (let i = 0; i < fixes.length; i += BATCH) {
+      const part = fixes.slice(i, i + BATCH);
+      try {
+        await hs.hsFetch("/crm/v3/objects/companies/batch/update", {
+          method: "POST",
+          body: { inputs: part },
+        });
+        r.written += part.length;
+      } catch (e: any) {
+        r.errors++;
+        console.error(
+          "[company-type/normalize] batch yazilamadi:",
+          String(e?.message || e).slice(0, 300),
+        );
+      }
+    }
+  }
+  return r;
+}
+
+// --- Serbest metin -> dropdown (enumeration) ---
+// DIKKAT: HubSpot bir property'nin `type` alanini sonradan degistirmeye her
+// zaman izin VERMEZ. Reddederse hata oldugu gibi dondurulur; o durumda alan
+// HubSpot arayuzunden (Ayarlar -> Properties -> Company Type -> field type)
+// cevrilir. Ne olursa olsun ONCE normalize kosulmali: enum'a gecince tanimli
+// secenek disindaki degerler gecersiz olur.
+export const DROPDOWN_OPTIONS = [
+  { label: "VC", value: TYPE_VC, displayOrder: 0, hidden: false },
+  { label: "Customer", value: TYPE_CUSTOMER, displayOrder: 1, hidden: false },
+];
+
+export async function convertCompanyTypeToDropdown(
+  opts: { dry?: boolean } = {},
+): Promise<{ ok: boolean; before?: unknown; after?: unknown; error?: string }> {
+  if (!process.env.HUBSPOT_TOKEN) throw new Error("HUBSPOT_TOKEN tanimli degil");
+  const before = await hs.hsFetch(`/crm/v3/properties/companies/${PROP}`);
+  if (opts.dry) return { ok: true, before };
+  try {
+    const updated = await hs.updateProperty("companies", PROP, {
+      type: "enumeration",
+      fieldType: "select",
+      options: DROPDOWN_OPTIONS,
+    });
+    return { ok: true, before, after: updated };
+  } catch (e: any) {
+    // Tam hatayi dondur: HubSpot'un reddetme gerekcesi kullaniciya gerekli.
+    return { ok: false, before, error: String(e?.message || e).slice(0, 600) };
+  }
 }

@@ -8,6 +8,8 @@ import {
   TYPE_VC,
   TYPE_CUSTOMER,
   PROP,
+  normalizeTypeValue,
+  DROPDOWN_OPTIONS,
 } from "../lib/company-type.js";
 
 let pass = 0;
@@ -112,6 +114,20 @@ vc("kennet partners");
 cu("freedom bioscience partners", "pharmaceuticals"); // kucuk harf industry
 cu("Freedom Bioscience Partners", "  Pharmaceuticals  "); // bosluklu
 
+// --- 9b) FUND_RAISING ve portfoy (2026-09 eklemeleri) ---
+vc("AlchemistAccelerator", "FUND_RAISING");
+vc("FjordPoint Capital", "FUND_RAISING");
+// TR ve ASCII yazim
+vc("Aktif Portföy");
+vc("Aktif Portfoy");
+vc("Quantum Portfolio Management");
+vc("Portfolio Advisors");
+vc("SHP Portfolio");
+// Sektor kesin musteri ise portfoy adi bile ezilir
+cu("Portfolio Bioscience", "PHARMACEUTICALS");
+// Kelime siniri: bitisik yazim eslesmez
+cu("Portfoliomatic Devices", "MEDICAL_DEVICES");
+
 // --- 10) Regex dogrudan ---
 eq(VC_NAME_RE.test("Acme Ventures"), true, "regex: Ventures");
 eq(VC_NAME_RE.test("Acme Service"), false, "regex: Service eslesmez");
@@ -119,6 +135,31 @@ eq(VC_NAME_RE.test("advcapital"), false, "regex: bitisik yazim eslesmez (kelime 
 eq(VC_INDUSTRIES.has("VENTURE_CAPITAL_PRIVATE_EQUITY"), true, "VC_INDUSTRIES icerir");
 eq(CUSTOMER_INDUSTRIES.has("PHARMACEUTICALS"), true, "CUSTOMER_INDUSTRIES icerir");
 eq(VC_INDUSTRIES.has("PHARMACEUTICALS"), false, "iki liste kesismez");
+
+// --- 11) Yazim normalizasyonu (dropdown gecisi oncesi) ---
+eq(normalizeTypeValue("vc"), TYPE_VC, "normalize: vc");
+eq(normalizeTypeValue("customer"), TYPE_CUSTOMER, "normalize: customer");
+// Portalda bulunan gercek kayma:
+eq(normalizeTypeValue("VC"), TYPE_VC, "normalize: buyuk harf VC");
+eq(normalizeTypeValue("Customer"), TYPE_CUSTOMER, "normalize: Customer");
+eq(normalizeTypeValue("  vC  "), TYPE_VC, "normalize: bosluk + karisik harf");
+eq(normalizeTypeValue("CUSTOMER"), TYPE_CUSTOMER, "normalize: CUSTOMER");
+// Bos -> normalize isi degil (doldurucunun isi)
+eq(normalizeTypeValue(""), null, "normalize: bos -> null");
+eq(normalizeTypeValue(null), null, "normalize: null -> null");
+eq(normalizeTypeValue("   "), null, "normalize: bosluk -> null");
+// Taninmayan deger -> null (cagiran yeniden siniflandirir)
+eq(normalizeTypeValue("prospect"), null, "normalize: taninmayan -> null");
+eq(normalizeTypeValue("vendor"), null, "normalize: vendor -> null");
+
+// --- 12) Dropdown secenekleri veriyle AYNI olmali ---
+// Enum'a gecince tanimli secenek disindaki deger gecersiz olur; option
+// value'lari mevcut kucuk harf veriyle birebir ayni olmak ZORUNDA.
+eq(DROPDOWN_OPTIONS.length, 2, "iki secenek");
+eq(DROPDOWN_OPTIONS[0].value, TYPE_VC, "1. secenek value = vc");
+eq(DROPDOWN_OPTIONS[1].value, TYPE_CUSTOMER, "2. secenek value = customer");
+eq(DROPDOWN_OPTIONS[0].label, "VC", "1. secenek etiketi VC");
+eq(DROPDOWN_OPTIONS[1].label, "Customer", "2. secenek etiketi Customer");
 
 console.log(`${pass} kontrol gecti, ${fails.length} basarisiz`);
 for (const f of fails) console.error("  FAIL:", f);
