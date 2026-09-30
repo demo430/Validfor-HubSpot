@@ -284,7 +284,14 @@ ad kuralında da yok ve bu portaldaki Türk holdingleri müşteri
 kelimeler fon sayılır.
 
 **Dolu `company_type` asla ezilmez** (boş-alan kuralı). Uç: `/api/company-type`;
-9.700+ kayıt 60 sn'ye sığmadığı için `done:false` dönerse tekrar çağır.
+`done:false` dönerse tekrar çağır.
+
+**Süpürücü iki fazlıdır: önce TÜM sayfalar okunur, sonra yazılır.** Yazarken
+okumak çalışmaz — arama indeksi birkaç saniye geride olduğu için yeni yazılan
+kayıt hâlâ "boş" görünür ve aynı kayıt tekrar tekrar işlenir. 2026-09'da
+ölçüldü: 9.755 kayıtlık küme için `scanned: 106.500`, döngü hiç bitmedi (aynı
+kayıt ~13 kez yazıldı). `lib/owners.ts` aynı tuzağı aynı şekilde çözüyor —
+yeni bir toplu süpürücü yazarken bu deseni kopyala.
 
 **Serbest webmail'den şirket kaydı açılmaz** (`FREE_EMAIL_DOMAINS`,
 `lib/upsert.ts`). Liste Polonya ve Çin webmail'leriyle genişletildi; benzer

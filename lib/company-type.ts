@@ -95,11 +95,12 @@ const BATCH = 100;
 
 /**
  * company_type BOS olan sirketleri tarar ve doldurur. Dolu olanlara ASLA
- * dokunmaz (bos-alan kurali) — insanin ya da onceki koşumun yazdigi deger
+ * dokunmaz (bos-alan kurali) — insanin ya da onceki kosumun yazdigi deger
  * korunur.
  *
- * 9.700+ kayit 60 sn'lik fonksiyon siniriona sigmaz; butce dolunca done:false
- * doner ve uc tekrar cagrilarak bitirilir.
+ * Iki fazli: once TUM sayfalar okunur, sonra yazilir (bkz. faz 1 notu —
+ * yazarken okumak arama indeksi gecikmesi yuzunden sonsuz donguye girer).
+ * Butce dolarsa done:false doner; uc tekrar cagrilarak bitirilir.
  */
 export async function backfillCompanyTypes(
   opts: { dry?: boolean; max?: number; budgetMs?: number } = {},
@@ -119,15 +120,21 @@ export async function backfillCompanyTypes(
     samples: [],
   };
 
-  // DIKKAT: yazdikca "company_type bos" kumesi kuculur, bu yuzden sayfa
-  // imleci (after) kullanmak kayit ATLAR. Her turda BASTAN ilk 100 bos kaydi
-  // cekip yaziyoruz; kume her turda 100 azaldigi icin dongu ilerler.
-  while (r.scanned < max) {
+  // --- FAZ 1: OKU (yazmadan) ---
+  // DIKKAT: Once tum sayfalar toplanir, SONRA yazilir. Yazarken okumak
+  // CALISMAZ: HubSpot arama indeksi birkac saniye geride oldugu icin yeni
+  // yazilan kayitlar hala "bos" gorunur ve ayni kayit tekrar tekrar islenir
+  // (2026-09'da olculdu: 9.755 kayitlik kume icin scanned=106.500, hic
+  // bitmedi). Ayni tuzak lib/owners.ts icinde de var, cozumu ayni.
+  // Okuma mutasyon yapmadigi icin sayfa imleci (after) bu fazda guvenli.
+  const rows: { id: string; name?: string; industry?: string }[] = [];
+  let after: string | undefined;
+  for (let page = 0; page < 400; page++) {
     if (Date.now() - started > budgetMs) {
       r.done = false;
       break;
     }
-    const json = await hs.hsFetch<{ results?: any[]; total?: number }>(
+    const json = await hs.hsFetch<{ results?: any[]; paging?: any }>(
       "/crm/v3/objects/companies/search",
       {
         method: "POST",
@@ -137,47 +144,49 @@ export async function backfillCompanyTypes(
           ],
           properties: ["name", "domain", "industry"],
           limit: BATCH,
+          ...(after ? { after } : {}),
         },
       },
     );
-    const rows = json.results || [];
-    if (!rows.length) break;
-
-    const inputs: { id: string; properties: Record<string, string> }[] = [];
-    for (const c of rows) {
+    for (const c of json.results || []) {
       const p = c.properties || {};
-      const t = classifyCompanyType(p.name, p.industry);
-      r.scanned++;
-      if (t === TYPE_VC) r.vc++;
-      else r.customer++;
-      if (r.samples.length < 50) {
-        const label = String(p.name || p.domain || c.id).slice(0, 44);
-        r.samples.push(`${label} [${p.industry || "-"}] -> ${t}`);
-      }
-      inputs.push({ id: String(c.id), properties: { [PROP]: t } });
+      rows.push({ id: String(c.id), name: p.name, industry: p.industry });
+      if (rows.length >= max) break;
     }
+    after = json.paging?.next?.after;
+    if (!after || rows.length >= max) break;
+  }
 
-    if (dry) {
-      // Onizlemede yazmadigimiz icin kume kuculmez -> sonsuz dongu olur.
-      // Ilk sayfayi gosterip cikiyoruz; gercek dagilimi yukaridaki SQL verir.
-      r.written = 0;
-      r.done = false;
-      break;
+  // --- FAZ 2: SINIFLANDIR + YAZ ---
+  const inputs: { id: string; properties: Record<string, string> }[] = [];
+  for (const row of rows) {
+    const t = classifyCompanyType(row.name, row.industry);
+    r.scanned++;
+    if (t === TYPE_VC) r.vc++;
+    else r.customer++;
+    if (r.samples.length < 50) {
+      const label = String(row.name || row.id).slice(0, 44);
+      r.samples.push(`${label} [${row.industry || "-"}] -> ${t}`);
     }
+    inputs.push({ id: row.id, properties: { [PROP]: t } });
+  }
 
+  if (dry) return r; // onizleme: hicbir sey yazilmaz, tum karar dagilimi doner
+
+  for (let i = 0; i < inputs.length; i += BATCH) {
+    const part = inputs.slice(i, i + BATCH);
     try {
       await hs.hsFetch("/crm/v3/objects/companies/batch/update", {
         method: "POST",
-        body: { inputs },
+        body: { inputs: part },
       });
-      r.written += inputs.length;
+      r.written += part.length;
     } catch (e: any) {
       r.errors++;
       console.error(
         "[company-type] batch yazilamadi:",
         String(e?.message || e).slice(0, 300),
       );
-      break; // ayni grup tekrar gelecegi icin sonsuz dongu olmasin
     }
   }
   return r;
