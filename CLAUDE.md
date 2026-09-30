@@ -261,12 +261,12 @@ Elle atanmış owner asla ezilmez. Geriye dönük süpürme: `/api/backfill-owne
 harf kullanıyor, o düzen korunur. Karar sırası:
 
 1. `industry` kesin fon (`VENTURE_CAPITAL_PRIVATE_EQUITY`, `INVESTMENT_MANAGEMENT`,
-   `INVESTMENT_BANKING`, `CAPITAL_MARKETS`) → **vc**
+   `INVESTMENT_BANKING`, `CAPITAL_MARKETS`, `FUND_RAISING`) → **vc**
 2. `industry` kesin müşteri (ilaç, tıbbi cihaz, biyoteknoloji, araştırma,
    hastane…) → **customer** — *ad kuralını ezer*
 3. Adında VC terimi (`vc` · `venture(s)` · `capital` · `equity` · `partner(s)` ·
-   `fund(s)` · `funding` · `invest*` · `angel(s)` · `asset management` ·
-   `family office`) → **vc**
+   `fund(s)` · `funding` · `invest*` · `angel(s)` · `portfolio` / `portföy` /
+   `portfoy` · `asset management` · `family office`) → **vc**
 4. Aksi halde → **customer**
 
 `industry`'nin addan önce gelmesi şart: "Partners" hem fonlarda hem hizmet
@@ -282,6 +282,12 @@ ad kuralında da yok ve bu portaldaki Türk holdingleri müşteri
 
 `vc` kelime sınırıyla aranır (`\bvc\b`) — yoksa "Service", "Advance" gibi
 kelimeler fon sayılır.
+
+**`FUND_RAISING` temiz bir sinyal değil.** Kullanıcı isteğiyle listede, ama
+bağış toplayan hayır kurumları da bu sektöre düşüyor — portalda
+"Jewish Federation of Greater MetroWest NJ". O kayıt elle `customer`'a
+sabitlendi; dolu alan ezilmediği için orada kalır. Benzerini görürsen aynısını
+yap.
 
 **Dolu `company_type` asla ezilmez** (boş-alan kuralı). Uç: `/api/company-type`;
 `done:false` dönerse tekrar çağır.

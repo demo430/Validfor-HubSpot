@@ -112,6 +112,20 @@ vc("kennet partners");
 cu("freedom bioscience partners", "pharmaceuticals"); // kucuk harf industry
 cu("Freedom Bioscience Partners", "  Pharmaceuticals  "); // bosluklu
 
+// --- 9b) FUND_RAISING ve portfoy (2026-09 eklemeleri) ---
+vc("AlchemistAccelerator", "FUND_RAISING");
+vc("FjordPoint Capital", "FUND_RAISING");
+// TR ve ASCII yazim
+vc("Aktif Portföy");
+vc("Aktif Portfoy");
+vc("Quantum Portfolio Management");
+vc("Portfolio Advisors");
+vc("SHP Portfolio");
+// Sektor kesin musteri ise portfoy adi bile ezilir
+cu("Portfolio Bioscience", "PHARMACEUTICALS");
+// Kelime siniri: bitisik yazim eslesmez
+cu("Portfoliomatic Devices", "MEDICAL_DEVICES");
+
 // --- 10) Regex dogrudan ---
 eq(VC_NAME_RE.test("Acme Ventures"), true, "regex: Ventures");
 eq(VC_NAME_RE.test("Acme Service"), false, "regex: Service eslesmez");

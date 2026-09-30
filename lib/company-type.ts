@@ -26,6 +26,12 @@ export const VC_INDUSTRIES = new Set([
   "INVESTMENT_MANAGEMENT",
   "INVESTMENT_BANKING",
   "CAPITAL_MARKETS",
+  // FUND_RAISING kullanici istegiyle eklendi (hizlandirici/fon kayitlari
+  // burada). DIKKAT: bu sektor TEMIZ bir sinyal DEGIL — bagis toplayan hayir
+  // kurumlari da buraya dusuyor (portalda "Jewish Federation of Greater
+  // MetroWest NJ"). O kayit elle customer'a sabitlendi; dolu alan asla
+  // ezilmedigi icin orada kalir. Benzer bir kayit gorursen aynisini yap.
+  "FUND_RAISING",
 ]);
 
 /** Sektoru kesin MUSTERI olanlar -> adinda "Partners" gecse bile customer. */
@@ -53,8 +59,11 @@ export const CUSTOMER_INDUSTRIES = new Set([
 // yok ve bu portaldaki Turk holdingleri musteri (orn. "Sayaholding / Aktif
 // Portfoy" Sales kartidir). Gercek yatirim holdingleri industry alanindan
 // (INVESTMENT_MANAGEMENT) yakalanir.
+// "portfolio" / "portfoy" / "portföy" (TR) kullanici istegiyle eklendi:
+// portfoy yonetim sirketleri yatirimci tarafi (orn. "Aktif Portföy",
+// "Quantum Portfolio Management"). Turkce "ö" ve ASCII "o" ikisi de kabul.
 export const VC_NAME_RE =
-  /\b(?:vc|ventures?|capital|equity|partners?|funds?|funding|invest\w*|angels?|asset management|family office)\b/i;
+  /\b(?:vc|ventures?|capital|equity|partners?|funds?|funding|invest\w*|angels?|portf(?:olio|[oö]y)|asset management|family office)\b/i;
 
 export type CompanyType = typeof TYPE_VC | typeof TYPE_CUSTOMER;
 
