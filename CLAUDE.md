@@ -256,6 +256,36 @@ alındı). Eşleşme önce e-posta, tutmazsa tam ad üzerinden yapılır; ad bir
 kullanıcıya denk geliyorsa alan **boş bırakılır** — yanlış kişiye atama yok.
 Elle atanmış owner asla ezilmez. Geriye dönük süpürme: `/api/backfill-owners`.
 
+**`company_type` = `vc` / `customer` (küçük harf).** (2026-09 kullanıcı kuralı,
+`lib/company-type.ts`) Alan **serbest metin**, enum değil; mevcut veri küçük
+harf kullanıyor, o düzen korunur. Karar sırası:
+
+1. `industry` kesin fon (`VENTURE_CAPITAL_PRIVATE_EQUITY`, `INVESTMENT_MANAGEMENT`,
+   `INVESTMENT_BANKING`, `CAPITAL_MARKETS`) → **vc**
+2. `industry` kesin müşteri (ilaç, tıbbi cihaz, biyoteknoloji, araştırma,
+   hastane…) → **customer** — *ad kuralını ezer*
+3. Adında VC terimi (`vc` · `venture(s)` · `capital` · `equity` · `partner(s)` ·
+   `fund(s)` · `funding` · `invest*` · `angel(s)` · `asset management` ·
+   `family office`) → **vc**
+4. Aksi halde → **customer**
+
+`industry`'nin addan önce gelmesi şart: "Partners" hem fonlarda hem hizmet
+şirketlerinde geçiyor. Portalda doğrulanan yanlış pozitifler —
+**Freedom Bioscience Partners** (`PHARMACEUTICALS`), **Legacy Service Partners**,
+**Harmancı & Partners**. `industry` boş olan ~6.500 kayıtta ad kuralı tek başına
+çalışır.
+
+`holding` **bilinçli olarak listede yok** — kullanıcı saymadı, `lib/gcal.ts`
+ad kuralında da yok ve bu portaldaki Türk holdingleri müşteri
+("Sayaholding / Aktif Portföy" bir Sales kartıdır). Gerçek yatırım holdingleri
+`industry` üzerinden yakalanır.
+
+`vc` kelime sınırıyla aranır (`\bvc\b`) — yoksa "Service", "Advance" gibi
+kelimeler fon sayılır.
+
+**Dolu `company_type` asla ezilmez** (boş-alan kuralı). Uç: `/api/company-type`;
+9.700+ kayıt 60 sn'ye sığmadığı için `done:false` dönerse tekrar çağır.
+
 **Serbest webmail'den şirket kaydı açılmaz** (`FREE_EMAIL_DOMAINS`,
 `lib/upsert.ts`). Liste Polonya ve Çin webmail'leriyle genişletildi; benzer
 bir sızıntı görülürse listeye eklenir.
@@ -306,6 +336,7 @@ curl -s "https://validfor.vercel.app/api/calendar-demos?dry=1"   -H "x-webhook-s
 curl -s "https://validfor.vercel.app/api/calendar-companies?dry=1" -H "x-webhook-secret: SECRET"
 
 curl -s "https://validfor.vercel.app/api/backfill-owners?dry=1"   -H "x-webhook-secret: SECRET"
+curl -s "https://validfor.vercel.app/api/company-type?dry=1"      -H "x-webhook-secret: SECRET"
 
 # Gerçek koşum — stage-sweep içinde calendar-sync + calendar-demos da çalışır
 curl -s -X POST "https://validfor.vercel.app/api/stage-sweep" -H "x-webhook-secret: SECRET"

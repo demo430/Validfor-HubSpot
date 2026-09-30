@@ -8,6 +8,7 @@ import { sweepStaleDeals, sweepEntryMismatch, DEFAULT_STALE_DAYS } from "../lib/
 import { syncScheduledVcDeals, syncCalendarCompanies, syncCalendarDemoDeals } from "../lib/gcal.js";
 import { syncCalendlyDemoDeals } from "../lib/calendly.js";
 import { sweepRepliedDeals } from "../lib/replies.js";
+import { backfillCompanyTypes } from "../lib/company-type.js";
 
 // Validfor Relay — Fireflies toplantilarini Claude (Sonnet 5) uzerinden HubSpot'a
 // tasiyan sade Hono uygulamasi. Webhook her seyi SENKRON yapar:
@@ -413,6 +414,47 @@ app.get("/api/reply-sweep", (c) => {
   const denied = relayAuthError(c, "reply-sweep");
   if (denied) return denied;
   return getWriteGate(c) ?? runReplySweep(c);
+});
+
+// --- Company Type doldurucu: sirket kaydina "vc" / "customer" yazar.
+// Kural (kullanici): adinda VC terimi (equity/venture/partner/capital/fund/
+// invest/angel/holding) gecen sirket vc, geri kalan customer. `industry` alani
+// ADDAN ONCE gelir — ilac/tibbi cihaz/arastirma sektoru yaziyorsa ad ne olursa
+// olsun customer (bkz. lib/company-type.ts notu).
+// DOLU alana ASLA dokunulmaz. 9.700+ kayit 60 sn'ye sigmaz: done:false
+// dondugunde ucu tekrar cagir.
+async function runCompanyType(c: any): Promise<Response> {
+  const denied = relayAuthError(c, "company-type");
+  if (denied) return denied;
+  const dry = ["1", "true"].includes(String(c.req.query("dry") || "").toLowerCase());
+  const maxRaw = Number(c.req.query("max"));
+  const max = isNaN(maxRaw) ? undefined : maxRaw;
+  try {
+    const r = await backfillCompanyTypes({ dry, max });
+    console.log(
+      `[company-type] dry=${dry} scanned=${r.scanned} vc=${r.vc} ` +
+        `customer=${r.customer} written=${r.written} errors=${r.errors} done=${r.done}`,
+    );
+    return c.json({ ok: true, dry, ...r }, 200);
+  } catch (e: any) {
+    console.error("[company-type] hata:", e?.message || e);
+    return c.json({ ok: false, error: String(e?.message || e).slice(0, 200) }, 200);
+  }
+}
+app.post("/api/company-type", (c) => runCompanyType(c));
+app.get("/api/company-type", (c) => {
+  const bearer = (c.req.header("authorization") || "").replace(/^Bearer\s+/i, "");
+  const hasKey = Boolean(c.req.query("key") || bearer || c.req.header("x-webhook-secret"));
+  if (!hasKey) {
+    return c.json({
+      ok: true,
+      route: "company-type",
+      hint: "sirketlere vc/customer yazar; x-webhook-secret ile POST, GET ?dry=1 ilk sayfayi onizler",
+    });
+  }
+  const denied = relayAuthError(c, "company-type");
+  if (denied) return denied;
+  return getWriteGate(c) ?? runCompanyType(c);
 });
 
 app.post("/api/stage-sweep", (c) => runStageSweep(c));
