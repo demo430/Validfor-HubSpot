@@ -290,7 +290,25 @@ sabitlendi; dolu alan ezilmediği için orada kalır. Benzerini görürsen aynı
 yap.
 
 **Dolu `company_type` asla ezilmez** (boş-alan kuralı). Uç: `/api/company-type`;
-`done:false` dönerse tekrar çağır.
+`done:false` dönerse tekrar çağır. Üç mod:
+
+| Mod | Ne yapar |
+|---|---|
+| (varsayılan) | **boş** alanları doldurur |
+| `?mode=normalize` | yazım kaymalarını kanonik hâle getirir (`VC` → `vc`); boş alana dokunmaz. `after` döndürürse `?mode=normalize&after=...` ile devam et |
+| `?mode=dropdown` | alanı serbest metinden dropdown'a (enumeration) çevirir |
+
+**Alan serbest metin olduğu için yazım kayıyor.** Portalda büyük harf `VC`
+değeri bulundu (Xss Capital, Cedar Portfolio). HubSpot'un SQL toplaması
+büyük/küçük harfi birleştirdiği için bu **raporlarda görünmüyor** —
+`GROUP BY company_type` sadece `vc` / `customer` gösterir. Tespit için
+`?mode=normalize&dry=1` koş.
+
+**Dropdown'a çevirmeden ÖNCE normalize koş.** Enum'a geçince yalnız tanımlı
+seçenekler geçerli olur; option `value`'ları mevcut küçük harf veriyle birebir
+aynı (`vc`, `customer`). HubSpot bir property'nin `type` alanını sonradan
+değiştirmeye her zaman izin vermez — reddederse hata olduğu gibi döner ve alan
+arayüzden çevrilir (Ayarlar → Properties → Company Type → field type).
 
 **Süpürücü iki fazlıdır: önce TÜM sayfalar okunur, sonra yazılır.** Yazarken
 okumak çalışmaz — arama indeksi birkaç saniye geride olduğu için yeni yazılan
