@@ -182,6 +182,30 @@ ve takvim bildirimleri (`Invitation:`, `Accepted:`, `Declined:`) da
 Kalıp `":"` ile bitiyorsa ardına `\b` koyma — `":"` ve boşluk ikisi de
 kelime-dışı olduğu için orada sınır yoktur (`auto:` ayrı dal).
 
+### Harici katılımcı yoksa Claude KENDİMİZİ şirket sanıyor
+Fireflies bazı kayıtlara hiç katılımcı yazmıyor (sessiz kayıt, Teams/Meet
+davetinin aktarılmaması). `processTranscript` o zaman `externals` boş görür —
+**takvim yedeği de çalışmaz**, çünkü `findCalendarCompanyName` eşleşecek bir
+katılımcı e-postası ister. Geriye tek kaynak kalır: Claude'un transkriptten
+çıkardığı ad. Transkriptte kendimizi anlattığımız için Claude şirket adı olarak
+**bizi** çıkarabiliyor.
+
+**Portalda gerçekleşen vaka (2026-10-01, Anton Naumenko @ Tetrad VC):** kayıtta
+yalnız iç katılımcılar vardı; otomasyon VC pipeline'ına **`ValidFor`** adlı kart
+açtı ve `validfor.com` domain'li şirket kaydına bağladı — oysa portalda zaten
+`Tetrad VC` (`tetrad.vc`) ve `Tetrad Ventures` kartı vardı.
+
+**Çözüm:** `isSelfCompanyName` (`lib/upsert.ts`) — ad bizim takma adlarımızdan
+birine indirgeniyorsa düşürülür, böylece mevcut "harici şirket/katılımcı yok"
+kuralı devreye girer ve kart hiç açılmaz. Takma adlar `VALIDFOR_INTERNAL_DOMAINS`
+etiketlerinden üretilir, `VALIDFOR_SELF_ALIASES` ile genişletilir (okunuş
+varyantları: `Valid 4`, `Valid4`). Aynı koruma takvim yolunda da var
+(`calendarCompanyName`, `lib/gcal.ts`) — açıklamaya `Company Name: Validfor`
+yazan bir davet aynı tuzağı kurardı.
+
+**Dikkat:** Koruma kartın *açılmasını* engeller, sadece. Harici katılımcısı
+olmayan gerçek bir müşteri toplantısı CRM'e yine girmez — o kayıt elle açılır.
+
 ### Apollo kredi koruması
 Zenginleştirilen şirkete `apollo_enriched_at` damgası basılır; damgalı kayıt
 tekrar sorgulanmaz. Loglarda `complete=N` bunu gösterir. Bu damgayı atlayan

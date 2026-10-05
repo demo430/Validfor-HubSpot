@@ -16,6 +16,21 @@ const INTERNAL_DOMAINS = new Set(
     .filter(Boolean),
 );
 
+// Kendi sirket adimiz asla musteri/fon kaydina donusmez. Transkriptte kendimizi
+// anlattigimiz icin Claude sirket adi olarak bazen BIZI cikariyor; harici
+// katilimci hic yoksa bu ad dogrudan CRM'e kart aciyordu (Tetrad VC toplantisi,
+// 2026-10-01: VC pipeline'da "ValidFor" karti + validfor.com domainli sirket).
+// Takma adlar ic domain etiketlerinden uretilir; VALIDFOR_SELF_ALIASES ile
+// genisletilebilir (okunus varyantlari: "Valid 4", "Valid4").
+const SELF_NAME_ALIASES = new Set<string>(
+  [
+    ...Array.from(INTERNAL_DOMAINS).map((d) => d.split(".")[0]),
+    ...(process.env.VALIDFOR_SELF_ALIASES || "validfor,valid4,validfor relay").split(","),
+  ]
+    .map((s) => normalizeCompanyKey(s))
+    .filter(Boolean),
+);
+
 // Serbest e-posta saglayicilari sirket domaini SAYILMAZ (gmail vb. -> sirket
 // olmaz, backfill de zenginlestirmez). Uluslararasi webmail'ler dahil —
 // backfill onizlemesinde wp.pl ve 126.com'un "sirket" olarak dolacagi gorulup
@@ -89,6 +104,24 @@ export function sameCompanyName(a: string, b: string): boolean {
 }
 
 // --- Saf yardimcilar (network yok; testlerde dogrulanabilir) ---
+/**
+ * Sirket adini karsilastirma anahtarina indirger: kucuk harf, TLD ve
+ * harf-disi her sey atilir. "Valid 4" / "ValidFor" / "validfor.com 4" -> ayni
+ * anahtar. Saf fonksiyon.
+ */
+export function normalizeCompanyKey(name: string): string {
+  return String(name || "")
+    .toLowerCase()
+    .replace(/\.(com|io|ai|co|net|org|vc|dev|app)\b.*$/, "")
+    .replace(/[^a-z0-9]/g, "");
+}
+
+/** Verilen ad BIZ miyiz? (kendi adimiza kart acilmasini engeller) */
+export function isSelfCompanyName(name: string): boolean {
+  const key = normalizeCompanyKey(name);
+  return key.length > 0 && SELF_NAME_ALIASES.has(key);
+}
+
 export function emailDomain(email: string): string {
   const at = String(email || "").lastIndexOf("@");
   return at === -1 ? "" : email.slice(at + 1).toLowerCase().trim();
@@ -379,6 +412,13 @@ export async function upsertMeeting(
   );
   const companyDomain =
     uniqueExternal.map(emailDomain).find((d) => isCompanyDomain(d)) || "";
+
+  // Claude kendimizi sirket sanmissa adi DUSUR; boylece asagidaki "harici
+  // sirket/katilimci yok" kurali dogal olarak devreye girer ve kart acilmaz.
+  if (x.companyName && isSelfCompanyName(x.companyName)) {
+    console.warn(`[upsert] ${t.id}: cikarilan sirket adi BIZ ("${x.companyName}") — dusuruldu`);
+    x = { ...x, companyName: "" };
+  }
 
   // Harici taraf yoksa (tamamen ici) ve sirket adi da yoksa -> atla
   if (!companyDomain && !x.companyName) {

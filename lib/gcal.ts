@@ -20,6 +20,7 @@ import { enrichOrganization } from "./apollo.js";
 import {
   emailDomain,
   isInternalEmail,
+  isSelfCompanyName,
   isSharedAccountEmail,
   ownerNameFromEmail,
   FREE_EMAIL_DOMAINS,
@@ -67,6 +68,19 @@ export function extractCompanyNameFromDescription(desc: string): string {
   return m[1].replace(/<[^>]*>/g, "").trim().slice(0, 120);
 }
 
+// Aciklamadan okunan ad BIZ cikarsa kullanilmaz. "Company Name: Validfor"
+// yazan bir davet, transkript yolundaki ayni tuzagi takvim tarafinda kurardi:
+// kendi adimiza sirket + kart acilir. isSelfCompanyName ic domain etiketlerinden
+// beslenir (lib/upsert.ts).
+function calendarCompanyName(desc: string): string {
+  const name = extractCompanyNameFromDescription(desc);
+  if (name && isSelfCompanyName(name)) {
+    console.warn(`[gcal] aciklamadaki sirket adi BIZ ("${name}") — yok sayildi`);
+    return "";
+  }
+  return name;
+}
+
 // Google events yanitini normalize eder (SAF).
 export function normalizeEvents(items: any[]): CalendarEvent[] {
   const out: CalendarEvent[] = [];
@@ -96,7 +110,7 @@ export function normalizeEvents(items: any[]): CalendarEvent[] {
       attendees: [...emails],
       names: [...names],
       isCalendly: hay.includes("calendly"),
-      companyName: extractCompanyNameFromDescription(String(it.description || "")),
+      companyName: calendarCompanyName(String(it.description || "")),
       organizer: org,
     });
   }
