@@ -206,6 +206,29 @@ yazan bir davet aynı tuzağı kurardı.
 **Dikkat:** Koruma kartın *açılmasını* engeller, sadece. Harici katılımcısı
 olmayan gerçek bir müşteri toplantısı CRM'e yine girmez — o kayıt elle açılır.
 
+### Webmail demosunda Claude KISIYI sirket sanıyor → ikiz kart
+Serbest webmail'den (`gmail.com` vb.) alınan demo rezervasyonlarında şirket
+domain'i yoktur; `calendar-demos` kartı **Calendly formunda beyan edilen adla**
+açar (`Company Name: My Big Calling`). Toplantı gerçekleşip transkript işlenince
+`processTranscript` takvimdeki o adı geri okumak için `findCalendarCompanyName`
+çağırıyor — ama koşul `!x.companyName` idi: **Claude bir ad ürettiyse takvim hiç
+okunmuyordu.** Claude kurumsal domain yokken şirket yerine **kişiyi** yazıyor.
+
+**Portalda doğrulanan vaka (2026-10-14, Suruchi Mullick / `gmail.com`):** Claude
+`"Suruchi Mullick (Independent Consultant)"` çıkardı, bu ad hiçbir karta denk
+gelmediği için upsert **yeni** şirket + **yeni** kart açtı; `calendar-demos`'un
+02.10'da açtığı gerçek kart (`My Big Calling`) `Unassigned`'da boş kaldı.
+Aynı desenin daha eski örneği: `"Sarepta Therapeutics / Solstice (via
+independent consultant)"` (Ashish Kulkarni, `gmail.com`, 05.10).
+
+**Çözüm:** `lib/pipeline.ts` — harici tarafta **kurumsal domain yoksa** takvimdeki
+beyan edilen ad Claude'un adını **ezer** (koşul artık `!hasCompanyDomain`).
+Kurumsal domain varsa takvime bakılmaz; domain zaten sağlam kimliktir.
+
+**Belirti:** `Unassigned`'da `ff_last_meeting_date` boş bir kart + aynı
+tarihli, kişi adıyla açılmış ikinci bir kart. Böyle bir çift görürsen
+transkripti yeniden işle — düzeltmeden sonra doğru karta düşer.
+
 ### Apollo kredi koruması
 Zenginleştirilen şirkete `apollo_enriched_at` damgası basılır; damgalı kayıt
 tekrar sorgulanmaz. Loglarda `complete=N` bunu gösterir. Bu damgayı atlayan
