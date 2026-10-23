@@ -5,7 +5,12 @@ import { enrichIncomingContacts } from "../lib/enrich-contacts.js";
 import { backfillCompanies } from "../lib/backfill.js";
 import { backfillDealOwners } from "../lib/owners.js";
 import { sweepStaleDeals, sweepEntryMismatch, DEFAULT_STALE_DAYS } from "../lib/sweep.js";
-import { syncScheduledVcDeals, syncCalendarCompanies, syncCalendarDemoDeals } from "../lib/gcal.js";
+import {
+  syncScheduledVcDeals,
+  syncCalendarCompanies,
+  syncCalendarDemoDeals,
+  inspectCalendarDemoEvents,
+} from "../lib/gcal.js";
 import { syncCalendlyDemoDeals } from "../lib/calendly.js";
 import { sweepRepliedDeals } from "../lib/replies.js";
 import {
@@ -632,6 +637,23 @@ async function runCalendarDemos(c: any): Promise<Response> {
   if (denied) return denied;
   const dry = ["1", "true"].includes(String(c.req.query("dry") || "").toLowerCase());
   const days = Math.min(Math.max(Number(c.req.query("days")) || 30, 1), 90);
+
+  // ?inspect=1 — TESHIS, hicbir sey yazmaz. Penceredeki demo etkinliklerini
+  // oldugu gibi dokeur (gecmis dahil, ?past=N). "Bu kart hangi rezervasyondan
+  // acildi" sorusu baska yoldan cevaplanamiyor: aday suzgeci gecmisi atiyor ve
+  // karti olani sessizce atliyor.
+  if (["1", "true"].includes(String(c.req.query("inspect") || "").toLowerCase())) {
+    const past = Math.min(Math.max(Number(c.req.query("past")) || 0, 0), 180);
+    try {
+      const r = await inspectCalendarDemoEvents({ days, past });
+      console.log(`[calendar-demos] inspect days=${days} past=${past} events=${r.events} matched=${r.matched}`);
+      return c.json({ ok: true, inspect: true, days, past, ...r }, 200);
+    } catch (e: any) {
+      console.error("[calendar-demos] inspect hatasi:", e?.message || e);
+      return c.json({ ok: false, error: String(e?.message || e).slice(0, 200) }, 200);
+    }
+  }
+
   try {
     const r = await syncCalendarDemoDeals({ days, dry });
     console.log(

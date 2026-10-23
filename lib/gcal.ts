@@ -20,6 +20,7 @@ import { enrichOrganization } from "./apollo.js";
 import {
   emailDomain,
   isInternalEmail,
+  isSelfCompanyName,
   isSharedAccountEmail,
   ownerNameFromEmail,
   FREE_EMAIL_DOMAINS,
@@ -67,6 +68,19 @@ export function extractCompanyNameFromDescription(desc: string): string {
   return m[1].replace(/<[^>]*>/g, "").trim().slice(0, 120);
 }
 
+// Aciklamadan okunan ad BIZ cikarsa kullanilmaz. "Company Name: Validfor"
+// yazan bir davet, transkript yolundaki ayni tuzagi takvim tarafinda kurardi:
+// kendi adimiza sirket + kart acilir. isSelfCompanyName ic domain etiketlerinden
+// beslenir (lib/upsert.ts).
+function calendarCompanyName(desc: string): string {
+  const name = extractCompanyNameFromDescription(desc);
+  if (name && isSelfCompanyName(name)) {
+    console.warn(`[gcal] aciklamadaki sirket adi BIZ ("${name}") — yok sayildi`);
+    return "";
+  }
+  return name;
+}
+
 // Google events yanitini normalize eder (SAF).
 export function normalizeEvents(items: any[]): CalendarEvent[] {
   const out: CalendarEvent[] = [];
@@ -96,7 +110,7 @@ export function normalizeEvents(items: any[]): CalendarEvent[] {
       attendees: [...emails],
       names: [...names],
       isCalendly: hay.includes("calendly"),
-      companyName: extractCompanyNameFromDescription(String(it.description || "")),
+      companyName: calendarCompanyName(String(it.description || "")),
       organizer: org,
     });
   }
@@ -782,6 +796,63 @@ export async function findCalendarCompanyName(
     }
   }
   return "";
+}
+
+/**
+ * TESHIS (hic yazma yok): penceredeki demo etkinliklerini oldugu gibi listeler.
+ *
+ * syncCalendarDemoDeals'in aday suzgeci iki sey yapar: gecmis etkinlikleri atar
+ * (`startMs <= now`) ve karti olani sessizce atlar. Ikisi birlesince "bu kart
+ * hangi rezervasyondan acildi" sorusu cevaplanamaz hale geliyor — cevap
+ * neredeyse her zaman GECMISTE. Bu fonksiyon o iki suzgeci de uygulamaz:
+ * tarih, baslik, BEYAN EDILEN ad, harici domain ve organizator olduklari gibi
+ * doner. `past` gun sayisi geriye bakar.
+ */
+export async function inspectCalendarDemoEvents(
+  opts: { days?: number; past?: number } = {},
+): Promise<{ events: number; matched: number; errors: string[]; items: string[] }> {
+  const days = opts.days ?? 30;
+  const past = opts.past ?? 0;
+  const ids = calendarIds();
+  if (!ids.length) throw new Error("GOOGLE_CALENDAR_ID tanimli degil");
+
+  const out = { events: 0, matched: 0, errors: [] as string[], items: [] as string[] };
+  const seen: CalendarEvent[] = [];
+  for (const id of ids) {
+    try {
+      seen.push(...(await fetchUpcomingEvents(id, days, past)));
+    } catch (e: any) {
+      out.errors.push(`${id}: ${String(e?.message || e).slice(0, 160)}`);
+    }
+  }
+  if (!seen.length && out.errors.length) {
+    throw new Error(`hicbir takvim okunamadi — ${out.errors.join(" | ")}`.slice(0, 500));
+  }
+  out.events = seen.length;
+
+  // Aday suzgeciyle AYNI demo testi: Calendly imzasi ya da basligda "demo".
+  const rows = seen
+    .filter((ev) => ev.isCalendly || ev.title.toLowerCase().includes("demo"))
+    .sort((a, b) => a.startMs - b.startMs);
+  out.matched = rows.length;
+  for (const ev of rows) {
+    if (out.items.length >= 200) break;
+    const when = new Date(ev.startMs).toISOString().slice(0, 16).replace("T", " ");
+    const ext = ev.attendees.filter((e) => !isInternalEmail(e));
+    const domains = Array.from(new Set(ext.map(emailDomain).filter(Boolean)));
+    out.items.push(
+      [
+        when,
+        `"${ev.title || "(bassiz)"}"`,
+        `ad=${ev.companyName || "-"}`,
+        `domain=${domains.join("|") || "-"}`,
+        `harici=${ext.join("|") || "-"}`,
+        `org=${ev.organizer || "-"}`,
+        ev.isCalendly ? "calendly" : "elle",
+      ].join(" \u00b7 "),
+    );
+  }
+  return out;
 }
 
 export async function syncCalendarDemoDeals(

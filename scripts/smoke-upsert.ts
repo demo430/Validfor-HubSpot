@@ -17,6 +17,8 @@ import {
   normCompanyName,
   sameCompanyName,
   internalOwnerEmailFromAttendees,
+  normalizeCompanyKey,
+  isSelfCompanyName,
 } from "../lib/upsert.js";
 
 // Faz 5 duman testi: upsert'in saf yardimcilarini network'e cikmadan dogrular.
@@ -196,6 +198,33 @@ check("owner e-posta: organizatorden turer + kucuk harf",
 
 check("owner e-posta: hic katilimci yoksa BOS",
   internalOwnerEmailFromAttendees({} as any) === "");
+
+// --- Kendi adimiza kart acilmasi (2026-10-01 Tetrad VC vakasi) ---
+// Toplantida hic harici katilimci yoktu; Claude transkriptten sirket adi olarak
+// BIZI cikardi ve VC pipeline'a "ValidFor" karti + validfor.com domainli sirket
+// kaydi dustu. Ad normalizasyonu bu varyantlarin hepsini ayni anahtara indirir.
+check("anahtar: harf-disi atilir", normalizeCompanyKey("Valid 4") === "valid4");
+check("anahtar: buyuk/kucuk harf", normalizeCompanyKey("ValidFor") === "validfor");
+check("anahtar: TLD atilir", normalizeCompanyKey("validfor.com") === "validfor");
+check("anahtar: TLD sonrasi da atilir", normalizeCompanyKey("Validfor.com 4") === "validfor");
+check("anahtar: bos -> bos", normalizeCompanyKey("") === "");
+check("anahtar: null guvenli", normalizeCompanyKey(null as any) === "");
+
+check("kendimiz: ValidFor", isSelfCompanyName("ValidFor") === true);
+check("kendimiz: Validfor", isSelfCompanyName("Validfor") === true);
+check("kendimiz: VALID4", isSelfCompanyName("VALID4") === true);
+check("kendimiz: Valid 4", isSelfCompanyName("Valid 4") === true);
+check("kendimiz: validfor.com", isSelfCompanyName("validfor.com") === true);
+check("kendimiz: bosluklu", isSelfCompanyName("  validfor  ") === true);
+
+// Gercek musteri/fon adlari ASLA kendimiz sayilmaz.
+check("musteri: Tetrad VC", isSelfCompanyName("Tetrad VC") === false);
+check("musteri: Moderna", isSelfCompanyName("Moderna") === false);
+check("musteri: ValDoc", isSelfCompanyName("ValDoc") === false);
+check("musteri: Validation Partners", isSelfCompanyName("Validation Partners") === false);
+check("musteri: Valid Insight", isSelfCompanyName("Valid Insight") === false);
+check("bos ad kendimiz sayilmaz", isSelfCompanyName("") === false);
+check("bosluk kendimiz sayilmaz", isSelfCompanyName("   ") === false);
 
 console.log(
   fail === 0

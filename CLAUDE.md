@@ -182,6 +182,53 @@ ve takvim bildirimleri (`Invitation:`, `Accepted:`, `Declined:`) da
 Kalıp `":"` ile bitiyorsa ardına `\b` koyma — `":"` ve boşluk ikisi de
 kelime-dışı olduğu için orada sınır yoktur (`auto:` ayrı dal).
 
+### Harici katılımcı yoksa Claude KENDİMİZİ şirket sanıyor
+Fireflies bazı kayıtlara hiç katılımcı yazmıyor (sessiz kayıt, Teams/Meet
+davetinin aktarılmaması). `processTranscript` o zaman `externals` boş görür —
+**takvim yedeği de çalışmaz**, çünkü `findCalendarCompanyName` eşleşecek bir
+katılımcı e-postası ister. Geriye tek kaynak kalır: Claude'un transkriptten
+çıkardığı ad. Transkriptte kendimizi anlattığımız için Claude şirket adı olarak
+**bizi** çıkarabiliyor.
+
+**Portalda gerçekleşen vaka (2026-10-01, Anton Naumenko @ Tetrad VC):** kayıtta
+yalnız iç katılımcılar vardı; otomasyon VC pipeline'ına **`ValidFor`** adlı kart
+açtı ve `validfor.com` domain'li şirket kaydına bağladı — oysa portalda zaten
+`Tetrad VC` (`tetrad.vc`) ve `Tetrad Ventures` kartı vardı.
+
+**Çözüm:** `isSelfCompanyName` (`lib/upsert.ts`) — ad bizim takma adlarımızdan
+birine indirgeniyorsa düşürülür, böylece mevcut "harici şirket/katılımcı yok"
+kuralı devreye girer ve kart hiç açılmaz. Takma adlar `VALIDFOR_INTERNAL_DOMAINS`
+etiketlerinden üretilir, `VALIDFOR_SELF_ALIASES` ile genişletilir (okunuş
+varyantları: `Valid 4`, `Valid4`). Aynı koruma takvim yolunda da var
+(`calendarCompanyName`, `lib/gcal.ts`) — açıklamaya `Company Name: Validfor`
+yazan bir davet aynı tuzağı kurardı.
+
+**Dikkat:** Koruma kartın *açılmasını* engeller, sadece. Harici katılımcısı
+olmayan gerçek bir müşteri toplantısı CRM'e yine girmez — o kayıt elle açılır.
+
+### Webmail demosunda Claude KISIYI sirket sanıyor → ikiz kart
+Serbest webmail'den (`gmail.com` vb.) alınan demo rezervasyonlarında şirket
+domain'i yoktur; `calendar-demos` kartı **Calendly formunda beyan edilen adla**
+açar (`Company Name: My Big Calling`). Toplantı gerçekleşip transkript işlenince
+`processTranscript` takvimdeki o adı geri okumak için `findCalendarCompanyName`
+çağırıyor — ama koşul `!x.companyName` idi: **Claude bir ad ürettiyse takvim hiç
+okunmuyordu.** Claude kurumsal domain yokken şirket yerine **kişiyi** yazıyor.
+
+**Portalda doğrulanan vaka (2026-10-14, Suruchi Mullick / `gmail.com`):** Claude
+`"Suruchi Mullick (Independent Consultant)"` çıkardı, bu ad hiçbir karta denk
+gelmediği için upsert **yeni** şirket + **yeni** kart açtı; `calendar-demos`'un
+02.10'da açtığı gerçek kart (`My Big Calling`) `Unassigned`'da boş kaldı.
+Aynı desenin daha eski örneği: `"Sarepta Therapeutics / Solstice (via
+independent consultant)"` (Ashish Kulkarni, `gmail.com`, 05.10).
+
+**Çözüm:** `lib/pipeline.ts` — harici tarafta **kurumsal domain yoksa** takvimdeki
+beyan edilen ad Claude'un adını **ezer** (koşul artık `!hasCompanyDomain`).
+Kurumsal domain varsa takvime bakılmaz; domain zaten sağlam kimliktir.
+
+**Belirti:** `Unassigned`'da `ff_last_meeting_date` boş bir kart + aynı
+tarihli, kişi adıyla açılmış ikinci bir kart. Böyle bir çift görürsen
+transkripti yeniden işle — düzeltmeden sonra doğru karta düşer.
+
 ### Apollo kredi koruması
 Zenginleştirilen şirkete `apollo_enriched_at` damgası basılır; damgalı kayıt
 tekrar sorgulanmaz. Loglarda `complete=N` bunu gösterir. Bu damgayı atlayan
