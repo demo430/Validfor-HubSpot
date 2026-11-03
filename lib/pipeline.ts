@@ -7,19 +7,25 @@ import {
   emailDomain,
   isCompanyDomain,
   isInternalEmail,
+  isNonCompanyDomain,
   meetingDateMs,
   type UpsertResult,
 } from "./upsert.js";
 import { findCalendarCompanyName } from "./gcal.js";
 
-/** Toplantinin Validfor-disi katilimci e-postalari (kucuk harf, tekil). */
+/**
+ * Toplantinin Validfor-disi katilimci e-postalari (kucuk harf, tekil).
+ * Takvim artefaktlari (toplanti odasi / grup takvimi adresleri) elenir —
+ * yoksa gercek harici katilimcisi olmayan bir toplanti "harici var" gorunur.
+ */
 function externalEmails(t: any): string[] {
   return Array.from(
     new Set(
       (t.meeting_attendees || [])
         .map((a: any) => String(a?.email || "").toLowerCase().trim())
         .filter(Boolean)
-        .filter((e: string) => !isInternalEmail(e)),
+        .filter((e: string) => !isInternalEmail(e))
+        .filter((e: string) => !isNonCompanyDomain(emailDomain(e))),
     ),
   );
 }

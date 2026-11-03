@@ -229,6 +229,27 @@ Kurumsal domain varsa takvime bakılmaz; domain zaten sağlam kimliktir.
 tarihli, kişi adıyla açılmış ikinci bir kart. Böyle bir çift görürsen
 transkripti yeniden işle — düzeltmeden sonra doğru karta düşer.
 
+### Takvim artefakti katılımcı sanılıyor → transkriptin TAMAMI düşüyor
+Google Takvim toplantı odalarını ve grup takvimlerini birer **katılımcı** olarak
+gönderir (`c_...@group.calendar.google.com`, `...@resource.calendar.google.com`).
+`NON_COMPANY_DOMAIN_RE` bunları zaten tanıyordu, ama süzgeç yalnızca
+`isCompanyDomain` içinde — yani **şirket** çözümlemesinde — kullanılıyordu.
+Kişi oluşturma döngüsü (`uniqueExternal`) ham listeyi geziyordu.
+
+**Portalda gerçekleşen vaka (2026-10-26, Wild Tree Ventures):** katılımcı
+listesinde bir grup takvimi adresi vardı; HubSpot
+`400 "Email address c_976491... not valid"` döndü ve **transkriptin tamamı
+düştü** — toplantı CRM'e hiç girmedi, kart `ff_last_meeting_date`'siz kaldı.
+
+**Çözüm:** artefaktlar artık `uniqueExternal` (`lib/upsert.ts`) ve
+`externalEmails` (`lib/pipeline.ts`) kurulurken elenir — aşağıda değil.
+**Serbest webmail burada ELENMEZ:** `gmail`/`icloud` gerçek bir kişidir, kişi
+kaydı açılır, yalnızca şirket kaydı açılmaz (onu `isCompanyDomain` yapar).
+
+**Belirti:** `processTranscript` → `HubSpot 400 POST /crm/v3/objects/contacts`
++ `"Email address ... not valid"`. Böyle bir hata görürsen katılımcı listesinde
+takvim adresi ara.
+
 ### Apollo kredi koruması
 Zenginleştirilen şirkete `apollo_enriched_at` damgası basılır; damgalı kayıt
 tekrar sorgulanmaz. Loglarda `complete=N` bunu gösterir. Bu damgayı atlayan

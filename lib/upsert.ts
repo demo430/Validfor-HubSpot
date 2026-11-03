@@ -401,13 +401,24 @@ export async function upsertMeeting(
     fireflies_link: link,
   };
 
-  // Harici katilimcilar (Validfor-ici olmayanlar)
+  // Harici katilimcilar (Validfor-ici olmayanlar).
+  //
+  // Takvim artefaktlari BURADA elenir, asagida degil. NON_COMPANY_DOMAIN_RE
+  // zaten `c_...@group.calendar.google.com` gibi adresleri taniyordu, ama o
+  // suzgec yalnizca isCompanyDomain icinde (sirket cozumlemesinde) kullaniliyordu;
+  // kisi olusturma dongusu ham listeyi geziyordu. Sonuc: HubSpot
+  // "Email address ... not valid" diye 400 donuyor ve TRANSKRIPTIN TAMAMI
+  // dusuyordu — toplanti CRM'e hic girmiyordu (2026-10-26, Wild Tree Ventures).
+  //
+  // Serbest webmail BURADA ELENMEZ: gmail/icloud gercek bir kisidir, kisi kaydi
+  // acilir, yalnizca sirket kaydi acilmaz (isCompanyDomain o isi yapiyor).
   const uniqueExternal = Array.from(
     new Set(
       (t.meeting_attendees || [])
         .map((a) => (a.email || "").toLowerCase().trim())
         .filter(Boolean)
-        .filter((e) => !isInternalEmail(e)),
+        .filter((e) => !isInternalEmail(e))
+        .filter((e) => !isNonCompanyDomain(emailDomain(e))),
     ),
   );
   const companyDomain =
