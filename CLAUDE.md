@@ -250,6 +250,21 @@ kaydı açılır, yalnızca şirket kaydı açılmaz (onu `isCompanyDomain` yapa
 + `"Email address ... not valid"`. Böyle bir hata görürsen katılımcı listesinde
 takvim adresi ara.
 
+### Claude adı yanlış duyunca toplantı BAŞKA karta düşüyor
+Deal önce Claude'un çıkardığı adla aranır. Ad transkriptten yanlış duyulursa
+(`Roan Equity` → `Rhone Equity`, `Agon` → `Agnome`) arama tutmaz ve son çare
+"şirkete bağlı deal" yoluna düşer. O yol eskiden **ilk** bağlı deal'ı alıyordu.
+Şirket başka firmaların kartlarına da ikincil bağlı olabildiği için toplantı
+yanlış karta yazılıyordu.
+
+**Portalda gerçekleşen vaka (2026-11-13):** 12.11 Agon demosu
+**Doctors Pharma** kartına düştü. Agon şirketi o karta da ikincil bağlıydı.
+
+**Çözüm (`lib/upsert.ts`):**
+- Şirket domain ile bulunduysa deal, kayıttaki **mevcut şirket adıyla** da aranır.
+- Son çare yolunda şirketi **birincil** taşıyan deal öne alınır
+  (`getPrimaryDealIdsOfCompany`, typeId 6).
+
 ### Apollo kredi koruması
 Zenginleştirilen şirkete `apollo_enriched_at` damgası basılır; damgalı kayıt
 tekrar sorgulanmaz. Loglarda `complete=N` bunu gösterir. Bu damgayı atlayan

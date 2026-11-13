@@ -314,6 +314,26 @@ export async function getAssociations(
   }
 }
 
+// --- Sirketi BIRINCIL sirket olarak tasiyan deal'lar ---
+// company -> deal yonunde HUBSPOT_DEFINED typeId 6 = "Deal with Primary Company".
+// Hata/bos durumda [] doner; cagiran eski siralamaya duser.
+export async function getPrimaryDealIdsOfCompany(companyId: string): Promise<string[]> {
+  try {
+    const json = await hsFetch<{ results?: any[] }>(
+      `/crm/v4/objects/companies/${companyId}/associations/deals?limit=100`,
+    );
+    return (json.results || [])
+      .filter((r) =>
+        (r.associationTypes || []).some(
+          (t: any) => t?.category === "HUBSPOT_DEFINED" && Number(t?.typeId) === 6,
+        ),
+      )
+      .map((r) => String(r.toObjectId));
+  } catch {
+    return [];
+  }
+}
+
 // --- TOPLU iliski okuma: fromType id'leri -> toType id listesi ---
 // Kart basina tek tek /associations cagirmak yerine 100'luk gruplar halinde
 // okur (Vercel 60 sn siniri + HubSpot 4 istek/sn freni icin sart).
