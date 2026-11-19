@@ -627,8 +627,8 @@ export async function syncCalendarCompanies(
 // dusmuyor. Takvim yolu bu tek noktaya bagimliligi kaldirir.
 //
 // Kapsam: GELECEK etkinlikler (gecmis toplantilar Fireflies akisinin isi).
-// Calendly imzasi tasiyanlar KESIN dahil; imzasizlar yalnizca basliginda
-// "demo" gecerse alinir (ic toplantilar sizmasin).
+// Calendly imzasi tasiyanlar KESIN dahil; imzasizlar basliginda "demo" gecerse
+// ya da ekipten biri demo@'yu davete ekleyip gonderdiyse alinir (isDemoEvent).
 export interface CalendarDemoResult {
   events: number;
   candidates: number;
@@ -657,6 +657,36 @@ export function isSelfSentInvite(ev: CalendarEvent): boolean {
   return !isSharedAccountEmail(org); // demo@/connect@ vb. gercek kisi degildir
 }
 
+// Ortak demo kutusu (demo@ / demo-requests@) — davete eklenmesi demo isaretidir.
+const DEMO_MAILBOX_LOCALS = new Set(["demo", "demo-requests"]);
+
+/**
+ * Etkinlik DEMO mu? (SAF)
+ *
+ * Uc sinyalden biri yeter:
+ *  1. Calendly imzasi (musteri kendi book etti)
+ *  2. basligda "demo"
+ *  3. ekipten biri kendi kutusundan davet gondermis VE ortak demo kutusu
+ *     (demo@) davette — kullanici kurali "CC'de demo@ = sahiplenilmis demo".
+ *     Basligi "AstraZeneca <> Validfor" gibi olan elle davetler 3. sinyal
+ *     olmadan hic yakalanmiyordu (2026-11-19, Molnlycke vakasi).
+ *     Fon gibi gorunen davet (basligda VC kelimesi ya da fon domain'i) haric —
+ *     o toplantilar VC akisinin isi.
+ */
+export function isDemoEvent(ev: CalendarEvent): boolean {
+  if (ev.isCalendly) return true;
+  const title = ev.title.toLowerCase();
+  if (title.includes("demo")) return true;
+  if (!isSelfSentInvite(ev)) return false;
+  const hasDemoMailbox = ev.attendees.some(
+    (e) => isInternalEmail(e) && DEMO_MAILBOX_LOCALS.has(e.split("@")[0]),
+  );
+  if (!hasDemoMailbox) return false;
+  if (VC_KEYWORDS.test(title)) return false;
+  const vcLike = ev.attendees.some((e) => !isInternalEmail(e) && isVcDomain(emailDomain(e)));
+  return !vcLike;
+}
+
 export interface CalendarDemoCandidate {
   domain: string;
   companyName: string;
@@ -680,9 +710,8 @@ export function extractCalendarDemoCandidates(
   };
   for (const ev of events) {
     if (ev.startMs <= nowMs) continue; // gecmis -> Fireflies akisi isler
-    const title = ev.title.toLowerCase();
-    // Calendly imzasi = kesin demo rezervasyonu. Imzasizsa yalniz "demo" basligi.
-    if (!ev.isCalendly && !title.includes("demo")) continue;
+    // Calendly imzasi, "demo" basligi ya da demo@'lu elle davet (isDemoEvent).
+    if (!isDemoEvent(ev)) continue;
     let hasCompanyDomain = false;
     let hasExternal = false;
     for (const email of ev.attendees) {
@@ -832,8 +861,7 @@ export async function inspectCalendarDemoEvents(
   out.events = seen.length;
 
   // Aday suzgeciyle AYNI demo testi: Calendly imzasi ya da basligda "demo".
-  const isDemo = (ev: CalendarEvent): boolean =>
-    ev.isCalendly || ev.title.toLowerCase().includes("demo");
+  const isDemo = isDemoEvent; // aday suzgeciyle AYNI test
   const rows = seen
     .filter((ev) => all || isDemo(ev))
     .sort((a, b) => a.startMs - b.startMs);

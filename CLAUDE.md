@@ -290,6 +290,17 @@ Bunlar kullanıcının açık kararları — "iyileştirme" niyetiyle değiştir
 Her iki durumda da toplantı gerçekleşip transkript işlenince otomasyon kartı
 `Meeting`'e alır.
 
+**Demo sayılma testi** (`isDemoEvent`, `lib/gcal.ts`) — üçünden biri yeter:
+
+1. Calendly imzası var.
+2. Başlıkta `demo` geçiyor.
+3. Ekipten biri daveti kendi kutusundan göndermiş **ve** `demo@` davette.
+
+Üçüncü madde 2026-11-19'da eklendi: `"Molnlycke <> Validfor"` gibi başlığında
+"demo" geçmeyen elle davetler hiç yakalanmıyordu ve kart açılmıyordu. Fon gibi
+görünen davetler bu maddeden hariçtir (başlıkta VC kelimesi ya da fon domain'i).
+Onlar VC akışının işidir.
+
 **Elle gönderilen davette şirket adı:** Calendly form cevabını etkinlik
 açıklamasına yazdığı için kart gerçek adla açılır; elle gönderilen davette bu
 satır yoktur ve kart **domain adıyla** açılır (`pharmaxsolutions.com`). Davet

@@ -10,6 +10,7 @@ import {
   extractVcCandidates,
   extractCalendarDemoCandidates,
   isSelfSentInvite,
+  isDemoEvent,
   extractCompanyNameFromDescription,
   findOrCreateCompany,
   findCalendarCompanyName,
@@ -205,6 +206,37 @@ check("bizden giden davet -> Scheduled adayi", Boolean(pharmax?.selfSent));
 check("bizden giden davette organizer tasinir",
   pharmax?.organizer === "burak.ozturkmen@validfor.com");
 check("Calendly rezervasyonu -> Unassigned adayi", grey?.selfSent === false);
+
+
+// Basliginda "demo" gecmeyen ELLE davet: ekip uyesi gonderdi + demo@ davette
+// -> demo sayilir (2026-11-19 Molnlycke / AstraZeneca vakasi). demo@ yoksa ya da
+// fon gibi gorunuyorsa sayilmaz.
+const plainEvs = normalizeEvents([
+  { id: "p1", summary: "Molnlycke <> Validfor", start: { dateTime: iso(now + DAY) },
+    organizer: { email: "aykut.ozturkmen@validfor.com" },
+    attendees: [{ email: "joe.adams@molnlycke.com" }, { email: "demo@validfor.com" }] },
+  { id: "p2", summary: "Molnlycke <> Validfor", start: { dateTime: iso(now + DAY) },
+    organizer: { email: "aykut.ozturkmen@validfor.com" },
+    attendees: [{ email: "joe.adams@molnlycke.com" }] },
+  { id: "p3", summary: "Blue Capital <> Validfor", start: { dateTime: iso(now + DAY) },
+    organizer: { email: "aykut.ozturkmen@validfor.com" },
+    attendees: [{ email: "mark@bluecap.com" }, { email: "demo@validfor.com" }] },
+  { id: "p4", summary: "Intro", start: { dateTime: iso(now + DAY) },
+    organizer: { email: "aykut.ozturkmen@validfor.com" },
+    attendees: [{ email: "a@firstpoint.vc" }, { email: "demo@validfor.com" }] },
+  { id: "p5", summary: "Weekly sync", start: { dateTime: iso(now + DAY) },
+    organizer: { email: "demo@validfor.com" },
+    attendees: [{ email: "x@client.com" }, { email: "demo@validfor.com" }] },
+]);
+check("demo@'lu elle davet (basliksiz) -> demo", isDemoEvent(plainEvs[0]) === true);
+check("demo@ yoksa -> demo degil", isDemoEvent(plainEvs[1]) === false);
+check("basligda VC kelimesi -> demo degil", isDemoEvent(plainEvs[2]) === false);
+check("fon domain'i -> demo degil", isDemoEvent(plainEvs[3]) === false);
+check("ortak hesap organizator, imzasiz/basliksiz -> demo degil", isDemoEvent(plainEvs[4]) === false);
+const plainCands = extractCalendarDemoCandidates(plainEvs, now);
+const moln = plainCands.find((c) => c.domain === "molnlycke.com");
+check("demo@'lu elle davet -> Scheduled adayi", Boolean(moln?.selfSent));
+check("yalniz demo@'lu davet aday olur", plainCands.length === 1);
 
 // Ortak hesaplar gercek kisi degildir: demo-requests@ ile gonderilen de
 // rezervasyon sayilir, sahiplenilmis demo degil.
