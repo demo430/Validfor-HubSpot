@@ -809,10 +809,11 @@ export async function findCalendarCompanyName(
  * doner. `past` gun sayisi geriye bakar.
  */
 export async function inspectCalendarDemoEvents(
-  opts: { days?: number; past?: number } = {},
+  opts: { days?: number; past?: number; all?: boolean } = {},
 ): Promise<{ events: number; matched: number; errors: string[]; items: string[] }> {
   const days = opts.days ?? 30;
   const past = opts.past ?? 0;
+  const all = !!opts.all; // ?all=1: demo sayilmayan etkinlikleri de dok (neden taninmadigini gormek icin)
   const ids = calendarIds();
   if (!ids.length) throw new Error("GOOGLE_CALENDAR_ID tanimli degil");
 
@@ -831,10 +832,12 @@ export async function inspectCalendarDemoEvents(
   out.events = seen.length;
 
   // Aday suzgeciyle AYNI demo testi: Calendly imzasi ya da basligda "demo".
+  const isDemo = (ev: CalendarEvent): boolean =>
+    ev.isCalendly || ev.title.toLowerCase().includes("demo");
   const rows = seen
-    .filter((ev) => ev.isCalendly || ev.title.toLowerCase().includes("demo"))
+    .filter((ev) => all || isDemo(ev))
     .sort((a, b) => a.startMs - b.startMs);
-  out.matched = rows.length;
+  out.matched = seen.filter(isDemo).length;
   for (const ev of rows) {
     if (out.items.length >= 200) break;
     const when = new Date(ev.startMs).toISOString().slice(0, 16).replace("T", " ");
@@ -849,6 +852,7 @@ export async function inspectCalendarDemoEvents(
         `harici=${ext.join("|") || "-"}`,
         `org=${ev.organizer || "-"}`,
         ev.isCalendly ? "calendly" : "elle",
+        ...(all ? [isDemo(ev) ? "DEMO" : "demo-degil"] : []),
       ].join(" \u00b7 "),
     );
   }

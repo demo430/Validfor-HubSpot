@@ -645,7 +645,8 @@ async function runCalendarDemos(c: any): Promise<Response> {
   if (["1", "true"].includes(String(c.req.query("inspect") || "").toLowerCase())) {
     const past = Math.min(Math.max(Number(c.req.query("past")) || 0, 0), 180);
     try {
-      const r = await inspectCalendarDemoEvents({ days, past });
+      const all = ["1", "true"].includes(String(c.req.query("all") || "").toLowerCase());
+      const r = await inspectCalendarDemoEvents({ days, past, all });
       console.log(`[calendar-demos] inspect days=${days} past=${past} events=${r.events} matched=${r.matched}`);
       return c.json({ ok: true, inspect: true, days, past, ...r }, 200);
     } catch (e: any) {
