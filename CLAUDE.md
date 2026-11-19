@@ -229,6 +229,42 @@ Kurumsal domain varsa takvime bakılmaz; domain zaten sağlam kimliktir.
 tarihli, kişi adıyla açılmış ikinci bir kart. Böyle bir çift görürsen
 transkripti yeniden işle — düzeltmeden sonra doğru karta düşer.
 
+### Takvim artefakti katılımcı sanılıyor → transkriptin TAMAMI düşüyor
+Google Takvim toplantı odalarını ve grup takvimlerini birer **katılımcı** olarak
+gönderir (`c_...@group.calendar.google.com`, `...@resource.calendar.google.com`).
+`NON_COMPANY_DOMAIN_RE` bunları zaten tanıyordu, ama süzgeç yalnızca
+`isCompanyDomain` içinde — yani **şirket** çözümlemesinde — kullanılıyordu.
+Kişi oluşturma döngüsü (`uniqueExternal`) ham listeyi geziyordu.
+
+**Portalda gerçekleşen vaka (2026-10-26, Wild Tree Ventures):** katılımcı
+listesinde bir grup takvimi adresi vardı; HubSpot
+`400 "Email address c_976491... not valid"` döndü ve **transkriptin tamamı
+düştü** — toplantı CRM'e hiç girmedi, kart `ff_last_meeting_date`'siz kaldı.
+
+**Çözüm:** artefaktlar artık `uniqueExternal` (`lib/upsert.ts`) ve
+`externalEmails` (`lib/pipeline.ts`) kurulurken elenir — aşağıda değil.
+**Serbest webmail burada ELENMEZ:** `gmail`/`icloud` gerçek bir kişidir, kişi
+kaydı açılır, yalnızca şirket kaydı açılmaz (onu `isCompanyDomain` yapar).
+
+**Belirti:** `processTranscript` → `HubSpot 400 POST /crm/v3/objects/contacts`
++ `"Email address ... not valid"`. Böyle bir hata görürsen katılımcı listesinde
+takvim adresi ara.
+
+### Claude adı yanlış duyunca toplantı BAŞKA karta düşüyor
+Deal önce Claude'un çıkardığı adla aranır. Ad transkriptten yanlış duyulursa
+(`Roan Equity` → `Rhone Equity`, `Agon` → `Agnome`) arama tutmaz ve son çare
+"şirkete bağlı deal" yoluna düşer. O yol eskiden **ilk** bağlı deal'ı alıyordu.
+Şirket başka firmaların kartlarına da ikincil bağlı olabildiği için toplantı
+yanlış karta yazılıyordu.
+
+**Portalda gerçekleşen vaka (2026-11-13):** 12.11 Agon demosu
+**Doctors Pharma** kartına düştü. Agon şirketi o karta da ikincil bağlıydı.
+
+**Çözüm (`lib/upsert.ts`):**
+- Şirket domain ile bulunduysa deal, kayıttaki **mevcut şirket adıyla** da aranır.
+- Son çare yolunda şirketi **birincil** taşıyan deal öne alınır
+  (`getPrimaryDealIdsOfCompany`, typeId 6).
+
 ### Apollo kredi koruması
 Zenginleştirilen şirkete `apollo_enriched_at` damgası basılır; damgalı kayıt
 tekrar sorgulanmaz. Loglarda `complete=N` bunu gösterir. Bu damgayı atlayan
@@ -253,6 +289,17 @@ Bunlar kullanıcının açık kararları — "iyileştirme" niyetiyle değiştir
 
 Her iki durumda da toplantı gerçekleşip transkript işlenince otomasyon kartı
 `Meeting`'e alır.
+
+**Demo sayılma testi** (`isDemoEvent`, `lib/gcal.ts`) — üçünden biri yeter:
+
+1. Calendly imzası var.
+2. Başlıkta `demo` geçiyor.
+3. Ekipten biri daveti kendi kutusundan göndermiş **ve** `demo@` davette.
+
+Üçüncü madde 2026-11-19'da eklendi: `"Molnlycke <> Validfor"` gibi başlığında
+"demo" geçmeyen elle davetler hiç yakalanmıyordu ve kart açılmıyordu. Fon gibi
+görünen davetler bu maddeden hariçtir (başlıkta VC kelimesi ya da fon domain'i).
+Onlar VC akışının işidir.
 
 **Elle gönderilen davette şirket adı:** Calendly form cevabını etkinlik
 açıklamasına yazdığı için kart gerçek adla açılır; elle gönderilen davette bu

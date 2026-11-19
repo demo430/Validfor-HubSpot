@@ -401,13 +401,24 @@ export async function upsertMeeting(
     fireflies_link: link,
   };
 
-  // Harici katilimcilar (Validfor-ici olmayanlar)
+  // Harici katilimcilar (Validfor-ici olmayanlar).
+  //
+  // Takvim artefaktlari BURADA elenir, asagida degil. NON_COMPANY_DOMAIN_RE
+  // zaten `c_...@group.calendar.google.com` gibi adresleri taniyordu, ama o
+  // suzgec yalnizca isCompanyDomain icinde (sirket cozumlemesinde) kullaniliyordu;
+  // kisi olusturma dongusu ham listeyi geziyordu. Sonuc: HubSpot
+  // "Email address ... not valid" diye 400 donuyor ve TRANSKRIPTIN TAMAMI
+  // dusuyordu — toplanti CRM'e hic girmiyordu (2026-10-26, Wild Tree Ventures).
+  //
+  // Serbest webmail BURADA ELENMEZ: gmail/icloud gercek bir kisidir, kisi kaydi
+  // acilir, yalnizca sirket kaydi acilmaz (isCompanyDomain o isi yapiyor).
   const uniqueExternal = Array.from(
     new Set(
       (t.meeting_attendees || [])
         .map((a) => (a.email || "").toLowerCase().trim())
         .filter(Boolean)
-        .filter((e) => !isInternalEmail(e)),
+        .filter((e) => !isInternalEmail(e))
+        .filter((e) => !isNonCompanyDomain(emailDomain(e))),
     ),
   );
   const companyDomain =
@@ -435,6 +446,7 @@ export async function upsertMeeting(
   // Zenginlestirme: country yalnizca bossa yazilir (insan verisi ezilmez).
   let companyId = "";
   let companyCountry: string | null = null; // bulunan kayittaki mevcut deger
+  let companyRecordName = ""; // domain ile bulunan kayittaki MEVCUT ad (deal aramasi icin)
   if (companyDomain) {
     const c = await hs.searchByProperty("company", "domain", "EQ", companyDomain, [
       "name",
@@ -442,7 +454,10 @@ export async function upsertMeeting(
       "country",
     ]);
     companyId = c?.id || "";
-    if (companyId) companyCountry = String(c.properties?.country || "");
+    if (companyId) {
+      companyCountry = String(c.properties?.country || "");
+      companyRecordName = String(c.properties?.name || "").trim();
+    }
   }
   if (!companyId && x.companyName) {
     const c = await hs.searchByProperty("company", "name", "EQ", x.companyName, [
@@ -564,6 +579,12 @@ export async function upsertMeeting(
   if (!foundDeal && companyDomain && dealName.toLowerCase() !== companyDomain) {
     foundDeal = await hs.searchDealsByName(companyDomain);
   }
+  // Sirket DOMAIN ile bulunduysa kayittaki mevcut adla da ara: Claude adi
+  // transkriptten yanlis duyabiliyor ("Roan Equity" -> "Rhone Equity",
+  // "Agon" -> "Agnome") ve o zaman ad aramasi tutmaz.
+  if (!foundDeal && companyRecordName && companyRecordName !== dealName) {
+    foundDeal = await hs.searchDealsByName(companyRecordName);
+  }
   // SON CARE — SIRKETE BAGLI DEAL: ad aramasi Claude'un her transkriptte biraz
   // farkli cikardigi adlarda ("Knight TX" / "Knight Therapeutics", "Redalpine" /
   // "Red Alpine") tutmaz ve ayni sirkete IKINCI deal acilirdi (14 mukerrer
@@ -571,7 +592,12 @@ export async function upsertMeeting(
   if (!foundDeal && companyId) {
     const wantPipeline = x.meetingType === "investor" ? VC_PIPELINE_ID : PIPELINE_ID;
     try {
+      // Sirketi BIRINCIL sirket olarak tasiyan deal once gelir: sirket baska
+      // firmalarin kartlarina da ikincil bagli olabiliyor (Agon kisisi Doctors
+      // Pharma kartina da bagliydi -> 12.11 Agon toplantisi Doctors Pharma'ya dustu).
+      const primary = new Set(await hs.getPrimaryDealIdsOfCompany(companyId));
       const dealIds = (await hs.getAssociations("company", companyId, "deal")).slice(0, 25);
+      dealIds.sort((a, b) => Number(primary.has(b)) - Number(primary.has(a)));
       for (const id of dealIds) {
         const cand = await hs.getObject("deal", id, ["dealname", "pipeline"]);
         if (String(cand?.properties?.pipeline || "") === wantPipeline) {

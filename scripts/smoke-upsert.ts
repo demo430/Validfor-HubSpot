@@ -19,6 +19,8 @@ import {
   internalOwnerEmailFromAttendees,
   normalizeCompanyKey,
   isSelfCompanyName,
+  isNonCompanyDomain,
+  isCompanyDomain,
 } from "../lib/upsert.js";
 
 // Faz 5 duman testi: upsert'in saf yardimcilarini network'e cikmadan dogrular.
@@ -225,6 +227,32 @@ check("musteri: Validation Partners", isSelfCompanyName("Validation Partners") =
 check("musteri: Valid Insight", isSelfCompanyName("Valid Insight") === false);
 check("bos ad kendimiz sayilmaz", isSelfCompanyName("") === false);
 check("bosluk kendimiz sayilmaz", isSelfCompanyName("   ") === false);
+
+// --- Takvim artefakti adresleri (2026-10-26 Wild Tree Ventures vakasi) ---
+// Google Takvim toplanti odalari/grup takvimleri birer "katilimci" olarak gelir.
+// Kisi olusturma dongusu bunlari eleyene kadar HubSpot 400 "Email address ...
+// not valid" donuyor ve TRANSKRIPTIN TAMAMI dusuyordu.
+check("artefakt: group.calendar.google.com",
+  isNonCompanyDomain("group.calendar.google.com") === true);
+check("artefakt: resource.calendar.google.com",
+  isNonCompanyDomain("resource.calendar.google.com") === true);
+check("artefakt: alt alan adi da elenir",
+  isNonCompanyDomain("x.group.calendar.google.com") === true);
+check("artefakt: xwf.google.com (Google yuklenici domaini)",
+  isNonCompanyDomain("xwf.google.com") === true);
+check("artefakt: bos domain de elenir", isNonCompanyDomain("") === true);
+
+// Gercek domainler ELENMEZ.
+check("gercek domain: lilly.com", isNonCompanyDomain("lilly.com") === false);
+check("gercek domain: wildtree.vc", isNonCompanyDomain("wildtree.vc") === false);
+check("gercek domain: google.com elenmez", isNonCompanyDomain("google.com") === false);
+
+// Serbest webmail ARTEFAKT DEGIL: kisi kaydi acilir, sirket kaydi acilmaz.
+check("webmail artefakt degil", isNonCompanyDomain("gmail.com") === false);
+check("webmail sirket domaini de degil", isCompanyDomain("gmail.com") === false);
+check("artefakt sirket domaini degil",
+  isCompanyDomain("group.calendar.google.com") === false);
+check("gercek domain sirket domainidir", isCompanyDomain("wildtree.vc") === true);
 
 console.log(
   fail === 0
